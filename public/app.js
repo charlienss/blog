@@ -141,37 +141,194 @@ function slugify(s) {
 }
 
 /* ---------- Markdown 渲染器 ---------- */
+function normalizeCodeLanguage(lang) {
+  var s = String(lang || '').trim().toLowerCase();
+  var aliases = {
+    js: 'javascript',
+    jsx: 'javascript',
+    ts: 'typescript',
+    py: 'python',
+    sh: 'bash',
+    shell: 'bash',
+    zsh: 'bash',
+    html: 'xml',
+    htm: 'xml',
+    vue: 'xml',
+    'c++': 'cpp',
+    cc: 'cpp',
+    hpp: 'cpp',
+    cs: 'csharp',
+    'c#': 'csharp',
+    yml: 'yaml',
+    rb: 'ruby',
+    rs: 'rust',
+    kt: 'kotlin'
+  };
+  return aliases[s] || s;
+}
+
 function tokenizeCode(lang, code) {
-  if (!lang || !/^(js|javascript|ts|typescript|python|py|bash|sh|css|html|json)$/i.test(lang)) {
-    return esc(code);
+  var language = normalizeCodeLanguage(lang);
+  var raw = String(code == null ? '' : code);
+
+  var keywords = {
+    javascript: 'break case catch class const continue debugger default delete do else export extends false finally for function if import in instanceof let new null return static super switch this throw true try typeof var void while with yield async await of from',
+    typescript: 'break case catch class const continue debugger default delete do else export extends false finally for function if import in instanceof let new null return static super switch this throw true try typeof var void while with yield async await interface type enum namespace implements public private protected readonly abstract keyof infer unknown never any string number boolean declare module as satisfies',
+    python: 'and as assert async await break class continue def del elif else except False finally for from global if import in is lambda None nonlocal not or pass raise return True try while with yield match case',
+    java: 'abstract assert boolean break byte case catch char class const continue default do double else enum extends final finally float for goto if implements import instanceof int interface long native new package private protected public return short static strictfp super switch synchronized this throw throws transient try void volatile while true false null record sealed permits var yield',
+    c: 'auto break case char const continue default do double else enum extern float for goto if inline int long register restrict return short signed sizeof static struct switch typedef union unsigned void volatile while',
+    cpp: 'alignas alignof and and_eq asm auto bitand bitor bool break case catch char char8_t char16_t char32_t class compl concept const consteval constexpr constinit const_cast continue co_await co_return co_yield decltype default delete do double dynamic_cast else enum explicit export extern false float for friend goto if inline int long mutable namespace new noexcept not not_eq nullptr operator or or_eq private protected public reinterpret_cast requires return short signed sizeof static static_assert static_cast struct switch template this throw true try typedef typeid typename union unsigned using virtual void volatile wchar_t while xor xor_eq',
+    csharp: 'abstract as base bool break byte case catch char checked class const continue decimal default delegate do double else enum event explicit extern false finally fixed float for foreach goto if implicit in int interface internal is lock long namespace new null object operator out override params private protected public readonly ref return sbyte sealed short sizeof stackalloc static string struct switch this throw true try typeof uint ulong unchecked unsafe ushort using virtual void volatile while async await record var dynamic get set init',
+    go: 'break default func interface select case defer go map struct chan else goto package switch const fallthrough if range type continue for import return var true false nil',
+    rust: 'as break const continue crate else enum extern false fn for if impl in let loop match mod move mut pub ref return self Self static struct super trait true type unsafe use where while async await dyn',
+    bash: 'if then else elif fi for while until do done case esac function select in time coproc echo printf export cd exit return local readonly source alias unalias set unset shift getopts',
+    sql: 'select from where insert into update delete create alter drop table database index view join inner left right full outer cross on group by order having limit offset union all distinct as and or not null is in exists between like case when then else end values set primary foreign key references constraint begin commit rollback grant revoke with recursive asc desc true false',
+    json: 'true false null',
+    css: 'display position color background margin padding border width height min-width max-width min-height max-height font opacity flex grid gap top right bottom left transform transition animation overflow z-index align-items justify-content box-shadow border-radius',
+    kotlin: 'as break class continue do else false for fun if in interface is null object package return super this throw true try typealias typeof val var when while by catch constructor data enum final import inline internal open operator override private protected public sealed suspend',
+    ruby: 'BEGIN END alias and begin break case class def defined do else elsif end ensure false for if in module next nil not or redo rescue retry return self super then true undef unless until when while yield',
+    yaml: 'true false null yes no on off'
+  };
+
+  var lineComments = {
+    javascript: ['//'], typescript: ['//'], java: ['//'],
+    c: ['//'], cpp: ['//'], csharp: ['//'], go: ['//'], rust: ['//'],
+    python: ['#'], bash: ['#'], ruby: ['#'], yaml: ['#'], sql: ['--']
+  };
+
+  var blockComments = {
+    javascript: [['/*', '*/']], typescript: [['/*', '*/']],
+    java: [['/*', '*/']], c: [['/*', '*/']], cpp: [['/*', '*/']],
+    csharp: [['/*', '*/']], go: [['/*', '*/']], rust: [['/*', '*/']],
+    css: [['/*', '*/']], sql: [['/*', '*/']]
+  };
+
+  var set = Object.create(null);
+  String(keywords[language] || '').split(/\s+/).forEach(function (w) {
+    if (w) set[w] = true;
+  });
+
+  function span(cls, s) {
+    return '<span class="' + cls + '">' + esc(s) + '</span>';
   }
-  lang = lang.toLowerCase();
+
+  function startsAt(pos, token) {
+    return raw.slice(pos, pos + token.length) === token;
+  }
+
+  if (language === 'xml') {
+    var htmlOut = '';
+    var hi = 0;
+    while (hi < raw.length) {
+      if (startsAt(hi, '<!--')) {
+        var hc = raw.indexOf('-->', hi + 4);
+        if (hc < 0) hc = raw.length - 3;
+        var hEnd = Math.min(raw.length, hc + 3);
+        htmlOut += span('tok-com', raw.slice(hi, hEnd));
+        hi = hEnd;
+        continue;
+      }
+      if (raw[hi] === '<') {
+        var gt = raw.indexOf('>', hi + 1);
+        if (gt < 0) gt = raw.length - 1;
+        htmlOut += span('tok-kw', raw.slice(hi, gt + 1));
+        hi = gt + 1;
+        continue;
+      }
+      htmlOut += esc(raw[hi]);
+      hi++;
+    }
+    return htmlOut;
+  }
+
   var out = '';
-  var kw = '';
-  if (lang === 'js' || lang === 'javascript' || lang === 'ts' || lang === 'typescript') {
-    kw = '\\b(?:const|let|var|function|return|if|else|for|while|class|new|import|export|from|async|await|try|catch|throw|switch|case|break|continue|typeof|instanceof|in|of|this|do|yield|delete|void|null|undefined|true|false)\\b';
-  } else if (lang === 'python' || lang === 'py') {
-    kw = '\\b(?:def|return|if|else|elif|for|while|import|from|class|try|except|finally|with|as|pass|break|continue|lambda|global|nonlocal|yield|True|False|None|not|and|or|in|is|raise|assert|del)\\b';
-  } else if (lang === 'bash' || lang === 'sh') {
-    kw = '\\b(?:if|then|else|fi|for|while|do|done|case|esac|function|echo|export|cd|exit|return|local|sudo|grep|sed|awk|curl|wget|npm|node|npx|git)\\b';
-  } else if (lang === 'css') {
-    kw = '\\b(?:display|position|color|background|margin|padding|border|width|height|font|opacity|flex|grid|z-index|top|right|bottom|left|transform|transition|@media|@keyframes)\\b';
-  } else if (lang === 'html') {
-    return esc(code);
-  } else if (lang === 'json') {
-    return esc(code);
+  var i = 0;
+
+  while (i < raw.length) {
+    var matched = false;
+
+    var blocks = blockComments[language] || [];
+    for (var bi = 0; bi < blocks.length; bi++) {
+      var open = blocks[bi][0];
+      var close = blocks[bi][1];
+      if (startsAt(i, open)) {
+        var bend = raw.indexOf(close, i + open.length);
+        if (bend < 0) bend = raw.length - close.length;
+        bend = Math.min(raw.length, bend + close.length);
+        out += span('tok-com', raw.slice(i, bend));
+        i = bend;
+        matched = true;
+        break;
+      }
+    }
+    if (matched) continue;
+
+    var lines = lineComments[language] || [];
+    for (var li = 0; li < lines.length; li++) {
+      var lc = lines[li];
+      if (startsAt(i, lc)) {
+        var lend = raw.indexOf('\n', i + lc.length);
+        if (lend < 0) lend = raw.length;
+        out += span('tok-com', raw.slice(i, lend));
+        i = lend;
+        matched = true;
+        break;
+      }
+    }
+    if (matched) continue;
+
+    var ch = raw[i];
+    var allowBacktick = language === 'javascript' || language === 'typescript';
+
+    if (ch === '"' || ch === "'" || (allowBacktick && ch === '`')) {
+      var quote = ch;
+      var si = i + 1;
+      var escaped = false;
+      while (si < raw.length) {
+        var sc = raw[si];
+        if (escaped) {
+          escaped = false;
+          si++;
+          continue;
+        }
+        if (sc === '\\') {
+          escaped = true;
+          si++;
+          continue;
+        }
+        si++;
+        if (sc === quote) break;
+      }
+      out += span('tok-str', raw.slice(i, si));
+      i = si;
+      continue;
+    }
+
+    if (/[0-9]/.test(ch)) {
+      var nm = raw.slice(i).match(
+        /^(?:0[xX][0-9a-fA-F]+|0[bB][01]+|\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)[fFdDlL]?/
+      );
+      if (nm) {
+        out += span('tok-num', nm[0]);
+        i += nm[0].length;
+        continue;
+      }
+    }
+
+    if (/[A-Za-z_$]/.test(ch)) {
+      var wm = raw.slice(i).match(/^[A-Za-z_$][A-Za-z0-9_$-]*/);
+      if (wm) {
+        var word = wm[0];
+        out += set[word] ? span('tok-kw', word) : esc(word);
+        i += word.length;
+        continue;
+      }
+    }
+
+    out += esc(ch);
+    i++;
   }
-  var re = new RegExp('(' + kw + ')|(\\d+(?:\\.\\d+)?)|(\\/\\/[^\\n]*|\\/\\*[\\s\\S]*?\\*\\/|#.*|<!--[\\s\\S]*?-->)|("(?:\\\\.|[^"\\\\])*"|\'(?:\\\\.|[^\'\\\\])*\')', 'g');
-  var last = 0, m;
-  while ((m = re.exec(code)) !== null) {
-    out += esc(code.slice(last, m.index));
-    if (m[1]) out += '<span class="tok-kw">' + esc(m[1]) + '</span>';
-    else if (m[2]) out += '<span class="tok-num">' + esc(m[2]) + '</span>';
-    else if (m[3]) out += '<span class="tok-com">' + esc(m[3]) + '</span>';
-    else if (m[4]) out += '<span class="tok-str">' + esc(m[4]) + '</span>';
-    last = m.index + m[0].length;
-  }
-  out += esc(code.slice(last));
+
   return out;
 }
 
@@ -187,11 +344,11 @@ function renderMarkdown(md) {
     var line = lines[i];
 
     // 代码块
-    if (/^```/.test(line)) {
-      var lang = line.replace(/^```/, '').trim();
+    if (/^\s*```/.test(line)) {
+      var lang = line.replace(/^\s*```/, '').trim();
       var codeLines = [];
       i++;
-      while (i < lines.length && !/^```/.test(lines[i])) {
+      while (i < lines.length && !/^\s*```\s*$/.test(lines[i])) {
         codeLines.push(lines[i]);
         i++;
       }
