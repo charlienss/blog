@@ -841,11 +841,152 @@
     if (route.id) loadEditor(content, route.id); else updatePreview(content);
   }
 
+
+  /* ----------------------- 本地图片粘贴 / 拖拽上传 ----------------------- */
+  function readImageAsDataURL(file) {
+    return new Promise(function (resolve, reject) {
+      var reader = new FileReader();
+      reader.onload = function () { resolve(reader.result); };
+      reader.onerror = function () { reject(new Error('读取图片失败')); };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function imageAltName(file) {
+    var name = (file && file.name) ? file.name : 'image';
+    name = name.replace(/\.[^.]+$/, '').replace(/[\[\]\(\)]/g, '').trim();
+    return name || 'image';
+  }
+
+  function insertTextAtCursor(area, text) {
+    var start = typeof area.selectionStart === 'number' ? area.selectionStart : area.value.length;
+    var end = typeof area.selectionEnd === 'number' ? area.selectionEnd : start;
+    var before = area.value.slice(0, start);
+    var after = area.value.slice(end);
+    var prefix = before && !/\n$/.test(before) ? '\n' : '';
+    var suffix = after && !/^\n/.test(after) ? '\n' : '';
+    var inserted = prefix + text + suffix;
+    area.value = before + inserted + after;
+    var pos = before.length + inserted.length;
+    area.selectionStart = area.selectionEnd = pos;
+    area.dispatchEvent(new Event('input', { bubbles: true }));
+    area.focus();
+  }
+
+  async function uploadEditorImage(file) {
+    if (!file || !/^image\/(png|jpeg|gif|webp|avif)$/i.test(file.type || '')) {
+      throw new Error('只支持 PNG / JPEG / GIF / WebP / AVIF 图片');
+    }
+    if (file.size > 8 * 1024 * 1024) {
+      throw new Error('单张图片不能超过 8 MB');
+    }
+    if (!(await localWritable())) {
+      throw new Error('图片直传需要使用 python serve.py 本地可写模式');
+    }
+
+    var dataUrl = await readImageAsDataURL(file);
+    var result = await localApi('/local-api/images', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: file.name || 'image',
+        type: file.type,
+        dataUrl: dataUrl
+      })
+    });
+    if (!result || !result.url) throw new Error('服务器没有返回图片地址');
+    return result;
+  }
+
+  async function insertEditorImages(content, area, files) {
+    var images = Array.prototype.slice.call(files || []).filter(function (f) {
+      return f && /^image\//i.test(f.type || '');
+    });
+    if (!images.length) return;
+
+    for (var i = 0; i < images.length; i++) {
+      var file = images[i];
+      try {
+        toast('正在保存图片 ' + (i + 1) + '/' + images.length + ' …');
+        var result = await uploadEditorImage(file);
+        insertTextAtCursor(area, '![' + imageAltName(file) + '](' + result.url + ')');
+        toast('图片已保存到 public/images/', 'ok');
+      } catch (e) {
+        toast('图片上传失败：' + (e.message || e), 'err');
+      }
+    }
+    updatePreview(content);
+  }
+
+  function chooseEditorImages(content, area) {
+    var input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/png,image/jpeg,image/gif,image/webp,image/avif';
+    input.multiple = true;
+    input.style.display = 'none';
+    document.body.appendChild(input);
+    input.addEventListener('change', function () {
+      insertEditorImages(content, area, input.files).finally(function () { input.remove(); });
+    });
+    input.click();
+  }
+
+  function bindEditorImagePaste(content, area) {
+    area.addEventListener('paste', function (e) {
+      var cd = e.clipboardData;
+      if (!cd || !cd.items) return;
+      var files = [];
+      for (var i = 0; i < cd.items.length; i++) {
+        var item = cd.items[i];
+        if (item.kind === 'file' && /^image\//i.test(item.type || '')) {
+          var file = item.getAsFile();
+          if (file) files.push(file);
+        }
+      }
+      if (!files.length) return;
+      e.preventDefault();
+      insertEditorImages(content, area, files);
+    });
+
+    area.addEventListener('dragover', function (e) {
+      var dt = e.dataTransfer;
+      if (!dt || !dt.types || Array.prototype.indexOf.call(dt.types, 'Files') < 0) return;
+      e.preventDefault();
+    });
+
+    area.addEventListener('drop', function (e) {
+      var dt = e.dataTransfer;
+      if (!dt || !dt.files || !dt.files.length) return;
+      var files = Array.prototype.slice.call(dt.files).filter(function (f) {
+        return /^image\//i.test(f.type || '');
+      });
+      if (!files.length) return;
+      e.preventDefault();
+      insertEditorImages(content, area, files);
+    });
+  }
+
   function bindEditor(content, route) {
     var area = content.querySelector('#abBody');
     area.addEventListener('input', debounce(function () { updatePreview(content); }, 200));
+    bindEditorImagePaste(content, area);
     content.querySelector('#abToolbar').querySelectorAll('[data-md]').forEach(function (b) {
-      b.addEventListener('click', function () { insertMd(area, b.getAttribute('data-md')); updatePreview(content); area.focus(); });
+      b.addEventListener('click', function () {
+        var type = b.getAttribute('data-md');
+        if (type === 'img') {
+          localWritable().then(function (writable) {
+            if (writable) chooseEditorImages(content, area);
+            else {
+              insertMd(area, type);
+              updatePreview(content);
+              area.focus();
+            }
+          });
+          return;
+        }
+        insertMd(area, type);
+        updatePreview(content);
+        area.focus();
+      });
     });
     content.querySelector('#abSaveDraft').addEventListener('click', function () { saveEditor(content, route, 'draft'); });
     content.querySelector('#abPublish').addEventListener('click', function () { saveEditor(content, route, 'published'); });
