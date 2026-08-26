@@ -80,12 +80,76 @@
   }
 
   /* ----------------------- 数据访问（兼容云端 / 静态） ----------------------- */
+  var _localWritable = null;
+
+  async function localWritable() {
+    if (cloudOn()) return false;
+    if (location.protocol !== 'http:' && location.protocol !== 'https:') return false;
+    if (_localWritable !== null) return _localWritable;
+    try {
+      var r = await fetch('/local-api/status', { cache: 'no-store' });
+      var ct = (r.headers.get('content-type') || '').toLowerCase();
+      if (!r.ok || ct.indexOf('application/json') < 0) {
+        _localWritable = false;
+        return false;
+      }
+      var d = await r.json();
+      _localWritable = !!(d && d.writable === true);
+      return _localWritable;
+    } catch (e) {
+      _localWritable = false;
+      return false;
+    }
+  }
+
+  async function localApi(url, opts) {
+    var o = opts || {};
+    var headers = Object.assign({ 'Content-Type': 'application/json' }, o.headers || {});
+    var r = await fetch(url, Object.assign({}, o, { headers: headers, cache: 'no-store' }));
+    var ct = (r.headers.get('content-type') || '').toLowerCase();
+    var d = ct.indexOf('application/json') >= 0 ? await r.json() : null;
+    if (!r.ok) throw new Error((d && d.error) || ('HTTP ' + r.status));
+    return d || { ok: true };
+  }
+
+  function syncMemoryPost(post) {
+    if (!post || !post.id) return;
+    var arr = Array.isArray(window.BLOG_POSTS) ? window.BLOG_POSTS.slice() : [];
+    var idx = arr.findIndex(function (p) { return p && p.id === post.id; });
+    if (idx >= 0) arr[idx] = post; else arr.unshift(post);
+    window.BLOG_POSTS = arr;
+    try {
+      var drafts = JSON.parse(localStorage.getItem('qingyu.drafts') || '[]');
+      if (Array.isArray(drafts)) {
+        drafts = drafts.filter(function (p) { return p && p.id !== post.id; });
+        localStorage.setItem('qingyu.drafts', JSON.stringify(drafts));
+      }
+    } catch (e) {}
+  }
+
+  function removeMemoryPost(id) {
+    var arr = Array.isArray(window.BLOG_POSTS) ? window.BLOG_POSTS : [];
+    window.BLOG_POSTS = arr.filter(function (p) { return p && p.id !== id; });
+    try {
+      var drafts = JSON.parse(localStorage.getItem('qingyu.drafts') || '[]');
+      if (Array.isArray(drafts)) {
+        drafts = drafts.filter(function (p) { return p && p.id !== id; });
+        localStorage.setItem('qingyu.drafts', JSON.stringify(drafts));
+      }
+    } catch (e) {}
+  }
+
   async function listPosts() {
     if (cloudOn()) {
       var d = await api('api/posts');
       return (d && d.posts) || [];
     }
-    // 静态模式：BLOG_POSTS 合并本地草稿
+
+    if (await localWritable()) {
+      var ld = await localApi('/local-api/posts');
+      return (ld && ld.posts) || [];
+    }
+
     var base = (window.getStaticPosts ? window.getStaticPosts() : []) || [];
     var drafts = [];
     try { drafts = JSON.parse(localStorage.getItem('qingyu.drafts') || '[]'); } catch (e) {}
@@ -94,14 +158,26 @@
     drafts.forEach(function (p) { if (p && p.id) map[p.id] = p; });
     return Object.keys(map).map(function (k) { return map[k]; });
   }
+
   async function getPost(id) {
     if (cloudOn()) {
       try { var d = await api('api/posts/' + encodeURIComponent(id)); return d && d.post; } catch (e) { return null; }
     }
+
+    if (await localWritable()) {
+      try {
+        var ld = await localApi('/local-api/posts/' + encodeURIComponent(id));
+        return ld && ld.post;
+      } catch (e) {
+        return null;
+      }
+    }
+
     var all = await listPosts();
     for (var i = 0; i < all.length; i++) if (all[i].id === id) return all[i];
     return null;
   }
+
   function saveStaticPost(post) {
     var drafts = [];
     try { drafts = JSON.parse(localStorage.getItem('qingyu.drafts') || '[]'); } catch (e) {}
@@ -113,23 +189,43 @@
     if (idx >= 0) drafts[idx] = item; else drafts.push(item);
     localStorage.setItem('qingyu.drafts', JSON.stringify(drafts));
   }
+
   async function savePost(post, isNew) {
     if (cloudOn()) {
       if (isNew) return await api('api/posts', { method: 'POST', body: JSON.stringify(post) });
       return await api('api/posts/' + encodeURIComponent(post.id), { method: 'PUT', body: JSON.stringify(post) });
     }
+
+    if (await localWritable()) {
+      var url = isNew ? '/local-api/posts' : '/local-api/posts/' + encodeURIComponent(post.id);
+      var r = await localApi(url, {
+        method: isNew ? 'POST' : 'PUT',
+        body: JSON.stringify(post)
+      });
+      syncMemoryPost((r && r.post) || post);
+      return r;
+    }
+
     saveStaticPost(post);
     return { ok: true };
   }
+
   async function deletePost(id) {
     if (cloudOn()) return await api('api/posts/' + encodeURIComponent(id), { method: 'DELETE' });
-    // 静态：从 BLOG_POSTS 与草稿中移除
+
+    if (await localWritable()) {
+      var r = await localApi('/local-api/posts/' + encodeURIComponent(id), { method: 'DELETE' });
+      removeMemoryPost(id);
+      return r;
+    }
+
     var drafts = [];
     try { drafts = JSON.parse(localStorage.getItem('qingyu.drafts') || '[]'); } catch (e) {}
     drafts = drafts.filter(function (p) { return p.id !== id; });
     localStorage.setItem('qingyu.drafts', JSON.stringify(drafts));
     return { ok: true };
   }
+
   function downloadPostsJs() {
     if (!window.buildPostsJs) { toast(t('admin.toast.exportNotSupported'), 'err'); return; }
     // posts.js
@@ -677,10 +773,8 @@
         var post = await getPost(pid);
         if (!post) { toast(t('admin.postList.notFound'), 'err'); return; }
         post.pinned = !post.pinned;
-        if (cloudOn()) {
-          await api('api/posts/' + enc(pid), { method: 'PUT', body: JSON.stringify(post) });
-        } else {
-          saveStaticPost(post);
+        var pinResult = await savePost(post, false);
+        if (!cloudOn() && !(pinResult && pinResult.localFile)) {
           downloadPostsJs();
         }
         toast(post.pinned ? t('admin.postList.pinnedOk') : t('admin.postList.unpinnedOk'), 'ok');
@@ -825,7 +919,9 @@
       var r = await savePost(post, isNew);
       if (r && (r.ok || r.post)) {
         toast(status === 'published' ? t('admin.editor.saved') : t('admin.editor.savedDraft'), 'ok');
-        if (cloudOn()) go('/admin/posts'); else {
+        if (cloudOn() || (r && r.localFile)) {
+          go('/admin/posts');
+        } else {
           toast(t('admin.editor.savedLocal'), 'ok');
         }
       } else {
