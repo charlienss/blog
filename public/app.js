@@ -67,7 +67,9 @@ function svgIcon(name, size) {
 }
 function themeIcon() { return getTheme() === 'dark' ? svgIcon('sun', 18) : svgIcon('moon', 18); }
 function refreshThemeIcon() {
-  var b = document.querySelector('#themeToggle'); if (b) b.innerHTML = themeIcon();
+  document.querySelectorAll('#themeToggle, #themeToggleSide').forEach(function (b) {
+    b.innerHTML = themeIcon();
+  });
 }
 
 function esc(s) {
@@ -931,6 +933,10 @@ function app() { return document.querySelector('#app'); }
   var langSwitch = '<select id="langSwitch" class="lang-switch" onchange="window.__i18n.loadLocale(this.value).then(function(){ route(); })"></select>';
   var sup = '<button class="icon-btn" id="themeToggle" aria-label="' + t('theme.toggle') + '" title="' + t('theme.toggle') + '">' + themeIcon() + '</button>';
   var searchBtn = '<button class="icon-btn search-toggle" id="searchToggle" aria-label="' + t('search.toggle') + '" title="' + t('search.toggle') + '">' + searchIconSvg() + '</button>';
+  // mobile sidebar must use unique ids
+  var sideLangSwitch = '<select id="langSwitchSide" class="lang-switch" onchange="window.__i18n.loadLocale(this.value).then(function(){ route(); })"></select>';
+  var sideSup = '<button class="icon-btn" id="themeToggleSide" aria-label="' + t('theme.toggle') + '" title="' + t('theme.toggle') + '">' + themeIcon() + '</button>';
+  var sideSearchBtn = '<button class="icon-btn search-toggle" id="searchToggleSide" aria-label="' + t('search.toggle') + '" title="' + t('search.toggle') + '">' + searchIconSvg() + '</button>';
 
   // 侧边栏导航项（移动端用）
   var sidebarLinks = navs.map(function (n) {
@@ -948,7 +954,7 @@ function app() { return document.querySelector('#app'); }
     + '<div class="sidebar-header"><span class="sidebar-brand">Qingyu\'Blog</span><button class="sidebar-close" id="sidebarClose" aria-label="' + t('search.close') + '">✕</button></div>'
     + '<nav class="sidebar-nav">' + sidebarLinks + '</nav>'
     + '<div class="sidebar-footer">'
-    + '<div class="sidebar-actions">' + searchBtn + langSwitch + sup + '</div>'
+    + '<div class="sidebar-actions">' + sideSearchBtn + sideLangSwitch + sideSup + '</div>'
     + '</div>'
     + '</aside>';
   var searchForm = '<form class="topbar-search" id="topbarSearch" role="search" onsubmit="return false">'
@@ -2547,20 +2553,21 @@ function bindMobileSidebar() {
 }
 
 function populateLangSwitch() {
-  var sel = document.querySelector('#langSwitch');
-  if (!sel || !window.__i18n || typeof window.__i18n.getLanguages !== 'function') return;
+  var sels = document.querySelectorAll('#langSwitch, #langSwitchSide');
+  if (!sels.length || !window.__i18n || typeof window.__i18n.getLanguages !== 'function') return;
   var langs = window.__i18n.getLanguages();
   var current = window.__i18n.getLocale ? window.__i18n.getLocale() : 'zh-CN';
-  sel.innerHTML = '';
-  langs.forEach(function (lang) {
-    var opt = document.createElement('option');
-    opt.value = lang.code;
-    opt.textContent = lang.flag + ' ' + lang.name;
-    if (lang.code === current) opt.selected = true;
-    sel.appendChild(opt);
+  sels.forEach(function (sel) {
+    sel.innerHTML = '';
+    langs.forEach(function (lang) {
+      var opt = document.createElement('option');
+      opt.value = lang.code;
+      opt.textContent = lang.flag + ' ' + lang.name;
+      if (lang.code === current) opt.selected = true;
+      sel.appendChild(opt);
+    });
   });
 }
-
 /* 返回顶部悬浮按钮：滚动超过一屏出现，点击平滑滚回当前页顶部（不跳转页面） */
 var _backTopScrollBound = false;
 function bindBackTop() {
@@ -2652,37 +2659,48 @@ function bindTocScroll() {
 
 /* 顶部导航搜索：点击搜索图标 → 隐藏导航、显示搜索框；输入实时出结果下拉面板 */
 function bindSearch() {
-  var toggle = document.querySelector('#searchToggle');
+  var toggles = document.querySelectorAll('#searchToggle, #searchToggleSide');
   var close = document.querySelector('#searchClose');
   var form = document.querySelector('#topbarSearch');
   var input = document.querySelector('#globalSearchInput');
   var panel = document.querySelector('#searchPanel');
 
-  if (toggle) toggle.addEventListener('click', function () {
+  function openSearch() {
+    var sidebar = document.querySelector('#mobileSidebar');
+    var overlay = document.querySelector('#sidebarOverlay');
+    if (sidebar) sidebar.classList.remove('open');
+    if (overlay) overlay.classList.remove('show');
+    document.body.style.overflow = '';
     var bar = document.querySelector('.topbar');
-    if (bar && bar.classList.contains('searching')) {   // 再次点击 = 收起
-      if (close) close.click();
-      return;
-    }
+    if (bar && bar.classList.contains('searching')) { if (close) close.click(); return; }
     _searchOpen = true;
     if (bar) bar.classList.add('searching');
-    if (input) { input.focus(); input.select && input.select(); }
+    if (input) { input.focus(); if (input.select) input.select(); }
+  }
+
+  toggles.forEach(function (toggle) {
+    toggle.addEventListener('click', function (e) {
+      if (e && e.stopPropagation) e.stopPropagation();
+      openSearch();
+    });
   });
-  if (close) close.addEventListener('click', function () {
+
+  if (close) close.addEventListener('click', function (e) {
+    if (e && e.stopPropagation) e.stopPropagation();
     _searchOpen = false;
     var bar = document.querySelector('.topbar');
     if (bar) bar.classList.remove('searching');
     if (input) input.value = '';
     if (panel) { panel.innerHTML = ''; panel.classList.remove('open'); }
   });
+
   if (input) {
     input.addEventListener('input', function () { renderSearchPanel(input.value); });
-    input.addEventListener('keydown', function (e) {
-      if (e.key === 'Escape') { if (close) close.click(); }
-    });
+    input.addEventListener('keydown', function (e) { if (e.key === 'Escape' && close) close.click(); });
   }
-  // 点击面板内部不冒泡；点击面板外部则收起整个搜索框
+  if (form) form.addEventListener('click', function (e) { e.stopPropagation(); });
   if (panel) panel.addEventListener('click', function (e) { e.stopPropagation(); });
+
   if (!_searchDocBound && typeof document !== 'undefined' && document.addEventListener) {
     _searchDocBound = true;
     document.addEventListener('click', function (e) {
@@ -2690,15 +2708,14 @@ function bindSearch() {
       if (!bar || !bar.classList.contains('searching')) return;
       var t = e.target;
       while (t && t !== document) {
-        if (t.id === 'topbarSearch' || t.id === 'searchPanel' || t.id === 'searchToggle') return;
+        if (t.id === 'topbarSearch' || t.id === 'searchPanel' || t.id === 'searchToggle' || t.id === 'searchToggleSide') return;
         t = t.parentNode;
       }
-      var c = document.querySelector('#searchClose');   // 每次重新查询，避免路由重渲染后引用失效
+      var c = document.querySelector('#searchClose');
       if (c) c.click();
     });
   }
 }
-
 /* 渲染搜索结果下拉面板（跨全部文章，非当前页过滤） */
 function renderSearchPanel(query) {
   var panel = document.querySelector('#searchPanel');
