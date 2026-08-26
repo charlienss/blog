@@ -21,6 +21,7 @@ ROOT = Path(__file__).resolve().parent
 PUBLIC = ROOT / "public"
 POSTS_FILE = PUBLIC / "posts.js"
 IMAGES_DIR = PUBLIC / "images"
+MARKDOWN_DIR = ROOT / "markdown"
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = int(os.environ.get("BLOG_PORT", "8080"))
@@ -90,6 +91,137 @@ def write_posts(posts: list[dict]) -> None:
     finally:
         if os.path.exists(tmp_name):
             os.unlink(tmp_name)
+
+    try:
+        sync_markdown_files(posts)
+    except Exception as e:
+        print("[Qingyu] Markdown mirror warning:", e)
+
+
+def _markdown_safe_filename(value: object) -> str:
+    raw = str(value or "").strip() or "post"
+
+    # Windows / macOS / Linux 都尽量安全，同时保留中文。
+    safe = re.sub(
+        r'[<>:"/\\|?*\x00-\x1f]+',
+        "-",
+        raw,
+    )
+    safe = re.sub(r"\s+", "-", safe).strip(" .-")
+    return (safe[:120].rstrip(" .-") or "post") + ".md"
+
+
+def _markdown_body_for_repo(content: object) -> str:
+    text = str(content or "")
+
+    # 博客正文里 /images/... 是站点根路径。
+    # Markdown 镜像位于 blog/markdown/，所以转成仓库相对路径。
+    # 这里不用正则，避免转义问题。
+    text = text.replace(
+        "](/images/",
+        "](../public/images/",
+    )
+
+    text = text.replace(
+        'src="/images/',
+        'src="../public/images/',
+    )
+
+    text = text.replace(
+        "src='/images/",
+        "src='../public/images/",
+    )
+
+    return text
+
+
+def render_markdown_copy(post: dict) -> str:
+    """
+    生成纯正文 Markdown 副本。
+
+    不再写 YAML Front Matter。
+    仅保留一个 GitHub 预览时不可见的 HTML 注释，
+    用于区分自动生成的 Markdown，避免删除用户手写文件。
+    """
+    body = _markdown_body_for_repo(
+        post.get("content")
+    ).strip()
+
+    if body:
+        return (
+            "<!-- markdown_generated: true -->\n\n"
+            + body
+            + "\n"
+        )
+
+    return "<!-- markdown_generated: true -->\n"
+
+
+def sync_markdown_files(posts: list[dict]) -> None:
+    MARKDOWN_DIR.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    expected = set()
+
+    for post in posts:
+        if not isinstance(post, dict):
+            continue
+
+        filename = _markdown_safe_filename(
+            post.get("id")
+        )
+        expected.add(filename)
+
+        target = MARKDOWN_DIR / filename
+        payload = render_markdown_copy(post)
+
+        fd, tmp_name = tempfile.mkstemp(
+            prefix="md-",
+            suffix=".tmp",
+            dir=str(MARKDOWN_DIR),
+        )
+
+        try:
+            # newline 必须传真正的 "\n"
+            with os.fdopen(
+                fd,
+                "w",
+                encoding="utf-8",
+                newline="\n",
+            ) as f:
+                f.write(payload)
+                f.flush()
+                os.fsync(f.fileno())
+
+            os.replace(
+                tmp_name,
+                target,
+            )
+        finally:
+            if os.path.exists(tmp_name):
+                os.unlink(tmp_name)
+
+    # 只删除自动生成且已从 posts.js 消失的 md。
+    # 用户自己手写的 Markdown 不会被删除。
+    for path in MARKDOWN_DIR.glob("*.md"):
+        if path.name in expected:
+            continue
+
+        try:
+            head = path.read_text(
+                encoding="utf-8",
+                errors="ignore",
+            )[:512]
+        except OSError:
+            continue
+
+        if "qingyu_generated: true" in head:
+            path.unlink(
+                missing_ok=True
+            )
+
 
 
 def normalize_post(raw: object, route_id: Optional[str] = None) -> dict:
@@ -329,6 +461,8 @@ class QingyuLocalHandler(SimpleHTTPRequestHandler):
                     "storage": "public/posts.js",
                     "imageUpload": True,
                     "imageStorage": "public/images/",
+                    "markdownMirror": True,
+                    "markdownStorage": "markdown/",
                 },
             )
             return
@@ -628,6 +762,21 @@ def main():
         exist_ok=True,
     )
 
+    MARKDOWN_DIR.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    try:
+        current_posts = load_posts()
+        sync_markdown_files(current_posts)
+        print(
+            f"[Qingyu] Markdown 已同步："
+            f"{len(current_posts)} 篇 -> {MARKDOWN_DIR}"
+        )
+    except Exception as e:
+        print("[Qingyu] Markdown startup sync warning:", e)
+
     server = ThreadingHTTPServer(
         (args.host, args.port),
         QingyuLocalHandler,
@@ -643,6 +792,7 @@ def main():
     )
     print(f"  文章: {POSTS_FILE}")
     print(f"  图片: {IMAGES_DIR}")
+    print(f"  Markdown: {MARKDOWN_DIR}")
     print(
         "  支持：粘贴 / 拖拽 / 选择图片"
     )
