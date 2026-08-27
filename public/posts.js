@@ -4,6 +4,48 @@
  * ============================================================ */
 window.BLOG_POSTS = [
   {
+    "id": "8",
+    "title": "8",
+    "date": "2026-08-26",
+    "excerpt": "8",
+    "content": "8",
+    "cover": "",
+    "pinned": false,
+    "tags": [
+      "8"
+    ],
+    "category": "",
+    "status": "published"
+  },
+  {
+    "id": "7",
+    "title": "7",
+    "date": "2026-08-26",
+    "excerpt": "这个是什么",
+    "content": "#这个是什么",
+    "cover": "",
+    "pinned": false,
+    "tags": [
+      "7"
+    ],
+    "category": "",
+    "status": "published"
+  },
+  {
+    "id": "56",
+    "title": "56",
+    "date": "2026-08-26",
+    "excerpt": "6",
+    "content": "6",
+    "cover": "",
+    "pinned": false,
+    "tags": [
+      "5"
+    ],
+    "category": "",
+    "status": "published"
+  },
+  {
     "id": "测试",
     "title": "测试",
     "date": "2026-08-26",

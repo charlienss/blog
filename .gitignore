@@ -25,3 +25,4 @@ wrangler.workers.ci.toml
 # 字体：源 TTF 不入库；fonts/dreamserif/ 分片必须随仓库部署（Pages 静态托管）
 public/fonts/*
 !public/fonts/dreamserif/
+markdown/*

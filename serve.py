@@ -376,6 +376,310 @@ def save_image(raw: object) -> dict:
     }
 
 
+def list_local_media() -> list[dict]:
+    IMAGES_DIR.mkdir(parents=True, exist_ok=True)
+
+    reverse_types = {
+        ext.lower(): mime
+        for mime, ext in IMAGE_TYPES.items()
+    }
+
+    items = []
+
+    for path in IMAGES_DIR.iterdir():
+        if not path.is_file():
+            continue
+
+        ext = path.suffix.lower()
+        if ext not in reverse_types:
+            continue
+
+        try:
+            stat = path.stat()
+        except OSError:
+            continue
+
+        items.append({
+            "id": path.name,
+            "name": path.name,
+            "url": "/images/" + path.name,
+            "size": stat.st_size,
+            "type": reverse_types.get(
+                ext,
+                "application/octet-stream",
+            ),
+            "mtime": int(stat.st_mtime),
+            "localFile": True,
+        })
+
+    items.sort(
+        key=lambda item: (
+            item.get("mtime", 0),
+            item.get("name", ""),
+        ),
+        reverse=True,
+    )
+
+    return items
+
+
+def delete_local_media(media_id: str) -> bool:
+    media_id = str(media_id or "").strip()
+
+    if not media_id:
+        return False
+
+    if Path(media_id).name != media_id:
+        raise ValueError("非法媒体文件名")
+
+    target = (IMAGES_DIR / media_id).resolve()
+    images_root = IMAGES_DIR.resolve()
+
+    try:
+        target.relative_to(images_root)
+    except ValueError as e:
+        raise ValueError("非法媒体路径") from e
+
+    if not target.exists() or not target.is_file():
+        return False
+
+    allowed_exts = {
+        ext.lower()
+        for ext in IMAGE_TYPES.values()
+    }
+
+    if target.suffix.lower() not in allowed_exts:
+        raise ValueError("不允许删除该文件类型")
+
+    target.unlink()
+    return True
+
+
+LOCAL_SETTINGS_FILE = ROOT / "local-settings.json"
+LOCAL_SETTINGS_JS = PUBLIC / "local-settings.js"
+
+
+def normalize_local_settings(raw: object) -> dict:
+    if not isinstance(raw, dict):
+        raise ValueError("设置数据必须是 JSON 对象")
+
+    site = raw.get("site_info", {})
+    profile = raw.get("profile", {})
+    nav = raw.get("nav", [])
+
+    if not isinstance(site, dict):
+        site = {}
+
+    if not isinstance(profile, dict):
+        profile = {}
+
+    if isinstance(nav, str):
+        try:
+            nav = json.loads(nav or "[]")
+        except Exception as e:
+            raise ValueError("导航 JSON 格式错误") from e
+
+    if not isinstance(nav, list):
+        raise ValueError("导航必须是数组")
+
+    clean_site = {
+        "name": str(site.get("name") or ""),
+        "desc": str(site.get("desc") or ""),
+        "avatar": str(site.get("avatar") or ""),
+        "copyright": str(site.get("copyright") or ""),
+        "footerText": str(site.get("footerText") or ""),
+    }
+
+    clean_profile = {
+        "name": str(profile.get("name") or ""),
+        "bio": str(profile.get("bio") or ""),
+        "avatar": str(profile.get("avatar") or ""),
+        "email": str(profile.get("email") or ""),
+    }
+
+    clean_nav = []
+
+    for item in nav:
+        if not isinstance(item, dict):
+            continue
+
+        entry = {
+            "text": str(item.get("text") or ""),
+            "url": str(item.get("url") or "/"),
+        }
+
+        children = item.get("children")
+        if isinstance(children, list):
+            entry["children"] = [
+                {
+                    "text": str(child.get("text") or ""),
+                    "url": str(child.get("url") or "/"),
+                }
+                for child in children
+                if isinstance(child, dict)
+            ]
+
+        clean_nav.append(entry)
+
+    return {
+        "site_info": clean_site,
+        "profile": clean_profile,
+        "nav": clean_nav,
+        "moderate_comments": (
+            "1"
+            if str(raw.get("moderate_comments") or "0") == "1"
+            else "0"
+        ),
+    }
+
+
+def load_local_settings() -> dict:
+    if not LOCAL_SETTINGS_FILE.exists():
+        return {
+            "site_info": {},
+            "profile": {},
+            "nav": [],
+            "moderate_comments": "0",
+        }
+
+    try:
+        raw = json.loads(
+            LOCAL_SETTINGS_FILE.read_text(
+                encoding="utf-8"
+            )
+        )
+    except Exception:
+        return {
+            "site_info": {},
+            "profile": {},
+            "nav": [],
+            "moderate_comments": "0",
+        }
+
+    return normalize_local_settings(raw)
+
+
+def build_local_settings_js(settings: dict) -> str:
+    payload = json.dumps(
+        settings,
+        ensure_ascii=False,
+        indent=2,
+    )
+
+    return (
+        "/* Qingyu'Blog · Python 本地设置覆盖层（自动生成） */\n"
+        "window.BLOG_LOCAL_SETTINGS = "
+        + payload
+        + ";\n"
+        "(function () {\n"
+        "  var s = window.BLOG_LOCAL_SETTINGS || {};\n"
+        "  var c = window.BLOG_CONFIG = window.BLOG_CONFIG || {};\n"
+        "  var site = s.site_info || {};\n"
+        "  var profile = s.profile || {};\n"
+        "\n"
+        "  if (site.name) c.title = site.name;\n"
+        "  if (Object.prototype.hasOwnProperty.call(site, 'desc')) c.description = site.desc || '';\n"
+        "  if (Object.prototype.hasOwnProperty.call(site, 'avatar')) c.siteAvatar = site.avatar || '';\n"
+        "  c.profile = profile;\n"
+        "\n"
+        "  if (Array.isArray(s.nav)) c.nav = s.nav;\n"
+        "\n"
+        "  c.footer = Object.assign({}, c.footer || {});\n"
+        "  if (Object.prototype.hasOwnProperty.call(site, 'copyright')) c.footer.copyrightName = site.copyright || '';\n"
+        "  if (Object.prototype.hasOwnProperty.call(site, 'footerText')) c.footer.decl = site.footerText || '';\n"
+        "\n"
+        "  c.moderateComments = String(s.moderate_comments || '0') === '1';\n"
+        "\n"
+        "  try {\n"
+        "    if (site.name) document.title = site.name;\n"
+        "    var meta = document.querySelector('meta[name=\"description\"]');\n"
+        "    if (meta && site.desc) meta.setAttribute('content', site.desc);\n"
+        "  } catch (e) {}\n"
+        "})();\n"
+    )
+
+
+def write_local_settings_js(settings: dict) -> None:
+    PUBLIC.mkdir(parents=True, exist_ok=True)
+
+    payload = build_local_settings_js(settings)
+
+    fd, tmp_name = tempfile.mkstemp(
+        prefix="local-settings-",
+        suffix=".js.tmp",
+        dir=str(PUBLIC),
+    )
+
+    try:
+        with os.fdopen(
+            fd,
+            "w",
+            encoding="utf-8",
+            newline="\n",
+        ) as f:
+            f.write(payload)
+            f.flush()
+            os.fsync(f.fileno())
+
+        os.replace(
+            tmp_name,
+            LOCAL_SETTINGS_JS,
+        )
+    finally:
+        if os.path.exists(tmp_name):
+            os.unlink(tmp_name)
+
+
+def write_local_settings(raw: object) -> dict:
+    settings = normalize_local_settings(raw)
+
+    fd, tmp_name = tempfile.mkstemp(
+        prefix="local-settings-",
+        suffix=".json.tmp",
+        dir=str(ROOT),
+    )
+
+    try:
+        with os.fdopen(
+            fd,
+            "w",
+            encoding="utf-8",
+            newline="\n",
+        ) as f:
+            json.dump(
+                settings,
+                f,
+                ensure_ascii=False,
+                indent=2,
+            )
+            f.write("\n")
+            f.flush()
+            os.fsync(f.fileno())
+
+        os.replace(
+            tmp_name,
+            LOCAL_SETTINGS_FILE,
+        )
+    finally:
+        if os.path.exists(tmp_name):
+            os.unlink(tmp_name)
+
+    write_local_settings_js(settings)
+    return settings
+
+
+def ensure_local_settings_js() -> None:
+    try:
+        write_local_settings_js(
+            load_local_settings()
+        )
+    except Exception as e:
+        print(
+            "[Qingyu] local-settings.js warning:",
+            e,
+        )
+
+
 class QingyuLocalHandler(SimpleHTTPRequestHandler):
     server_version = "QingyuLocal/1.2"
 
@@ -447,6 +751,18 @@ class QingyuLocalHandler(SimpleHTTPRequestHandler):
         if path == "/local-api/images":
             return ("images", None)
 
+        if path == "/local-api/media":
+            return ("media", None)
+
+        if path.startswith("/local-api/media/"):
+            return (
+                "media_item",
+                path[len("/local-api/media/"):],
+            )
+
+        if path == "/local-api/settings":
+            return ("settings", None)
+
         return (None, None)
 
     def do_GET(self):
@@ -463,6 +779,8 @@ class QingyuLocalHandler(SimpleHTTPRequestHandler):
                     "imageStorage": "public/images/",
                     "markdownMirror": True,
                     "markdownStorage": "markdown/",
+                    "mediaLibrary": True,
+                    "settingsWritable": True,
                 },
             )
             return
@@ -527,6 +845,46 @@ class QingyuLocalHandler(SimpleHTTPRequestHandler):
                 )
             return
 
+        if kind == "media":
+            try:
+                self._json(
+                    HTTPStatus.OK,
+                    {
+                        "ok": True,
+                        "media": list_local_media(),
+                        "localFile": True,
+                    },
+                )
+            except Exception as e:
+                self._json(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    {
+                        "ok": False,
+                        "error": str(e),
+                    },
+                )
+            return
+
+        if kind == "settings":
+            try:
+                self._json(
+                    HTTPStatus.OK,
+                    {
+                        "ok": True,
+                        "settings": load_local_settings(),
+                        "localFile": True,
+                    },
+                )
+            except Exception as e:
+                self._json(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    {
+                        "ok": False,
+                        "error": str(e),
+                    },
+                )
+            return
+
         path = unquote(urlparse(self.path).path)
 
         if path.startswith("/local-api/"):
@@ -570,6 +928,41 @@ class QingyuLocalHandler(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         kind, _ = self._local_api_parts()
+
+        if kind == "media":
+            try:
+                raw = self._read_json()
+
+                if isinstance(raw, dict):
+                    raw = dict(raw)
+
+                    if not raw.get("dataUrl") and raw.get("url"):
+                        raw["dataUrl"] = raw.get("url")
+
+                result = save_image(raw)
+                result["id"] = result.get("name")
+
+                self._json(
+                    HTTPStatus.OK,
+                    result,
+                )
+            except ValueError as e:
+                self._json(
+                    HTTPStatus.BAD_REQUEST,
+                    {
+                        "ok": False,
+                        "error": str(e),
+                    },
+                )
+            except Exception as e:
+                self._json(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    {
+                        "ok": False,
+                        "error": str(e),
+                    },
+                )
+            return
 
         if kind == "images":
             try:
@@ -642,6 +1035,39 @@ class QingyuLocalHandler(SimpleHTTPRequestHandler):
     def do_PUT(self):
         kind, post_id = self._local_api_parts()
 
+        if kind == "settings":
+            try:
+                settings = write_local_settings(
+                    self._read_json()
+                )
+
+                self._json(
+                    HTTPStatus.OK,
+                    {
+                        "ok": True,
+                        "settings": settings,
+                        "localFile": True,
+                        "message": "本地博客设置已保存",
+                    },
+                )
+            except ValueError as e:
+                self._json(
+                    HTTPStatus.BAD_REQUEST,
+                    {
+                        "ok": False,
+                        "error": str(e),
+                    },
+                )
+            except Exception as e:
+                self._json(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    {
+                        "ok": False,
+                        "error": str(e),
+                    },
+                )
+            return
+
         if kind != "post" or not post_id:
             self._json(
                 HTTPStatus.NOT_FOUND,
@@ -688,6 +1114,47 @@ class QingyuLocalHandler(SimpleHTTPRequestHandler):
 
     def do_DELETE(self):
         kind, post_id = self._local_api_parts()
+
+        if kind == "media_item" and post_id:
+            try:
+                removed = delete_local_media(post_id)
+
+                if not removed:
+                    self._json(
+                        HTTPStatus.NOT_FOUND,
+                        {
+                            "ok": False,
+                            "error": "媒体文件不存在",
+                        },
+                    )
+                    return
+
+                self._json(
+                    HTTPStatus.OK,
+                    {
+                        "ok": True,
+                        "id": post_id,
+                        "localFile": True,
+                        "message": "媒体文件已删除",
+                    },
+                )
+            except ValueError as e:
+                self._json(
+                    HTTPStatus.BAD_REQUEST,
+                    {
+                        "ok": False,
+                        "error": str(e),
+                    },
+                )
+            except Exception as e:
+                self._json(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    {
+                        "ok": False,
+                        "error": str(e),
+                    },
+                )
+            return
 
         if kind != "post" or not post_id:
             self._json(
@@ -776,6 +1243,8 @@ def main():
         )
     except Exception as e:
         print("[Qingyu] Markdown startup sync warning:", e)
+
+    ensure_local_settings_js()
 
     server = ThreadingHTTPServer(
         (args.host, args.port),

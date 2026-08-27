@@ -520,6 +520,11 @@ function getConfig() {
     siteUrl: cfg.siteUrl || (typeof location !== 'undefined' ? location.origin : ''),
     writeToken: cfg.writeToken || '',
     adminPwd: cfg.adminPwd || '',
+    title: cfg.title || '',
+    description: cfg.description || '',
+    profile: cfg.profile || {},
+    siteAvatar: cfg.siteAvatar || '',
+    moderateComments: !!cfg.moderateComments,
     pageSize: (typeof cfg.pageSize === 'number' && cfg.pageSize >= 0) ? cfg.pageSize : 8,
     nav: Array.isArray(cfg.nav) ? cfg.nav : [],
     footer: cfg.footer || {},
@@ -1050,6 +1055,7 @@ function app() { return document.querySelector('#app'); }
 
   function renderNav(active) {
   var cfg = getConfig();
+  var brandName = cfg.title || "Qingyu'Blog";
   var navs = cfg.nav.length ? cfg.nav : [
     { text: t('nav.home'), url: '/', path: '/' },
     { text: t('nav.tags'), url: '/tags', path: '/tags' },
@@ -1088,13 +1094,12 @@ function app() { return document.querySelector('#app'); }
   }).join('');
 
   var langSwitch = '<select id="langSwitch" class="lang-switch" onchange="window.__i18n.loadLocale(this.value).then(function(){ route(); })"></select>';
-  var themeBtn = '<button class="icon-btn" id="themeToggle" aria-label="' + t('theme.toggle') + '" title="' + t('theme.toggle') + '">' + themeIcon() + '</button>';
+  var sup = '<button class="icon-btn" id="themeToggle" aria-label="' + t('theme.toggle') + '" title="' + t('theme.toggle') + '">' + themeIcon() + '</button>';
   var searchBtn = '<button class="icon-btn search-toggle" id="searchToggle" aria-label="' + t('search.toggle') + '" title="' + t('search.toggle') + '">' + searchIconSvg() + '</button>';
   // mobile sidebar must use unique ids
   var sideLangSwitch = '<select id="langSwitchSide" class="lang-switch" onchange="window.__i18n.loadLocale(this.value).then(function(){ route(); })"></select>';
   var sideSup = '<button class="icon-btn" id="themeToggleSide" aria-label="' + t('theme.toggle') + '" title="' + t('theme.toggle') + '">' + themeIcon() + '</button>';
   var sideSearchBtn = '<button class="icon-btn search-toggle" id="searchToggleSide" aria-label="' + t('search.toggle') + '" title="' + t('search.toggle') + '">' + searchIconSvg() + '</button>';
-  var hamburger = '<button class="hamburger-btn" id="hamburgerBtn" aria-label="' + t('nav.toggle') + '"><span></span><span></span><span></span></button>';
 
   // 侧边栏导航项（移动端用）
   var sidebarLinks = navs.map(function (n) {
@@ -1106,30 +1111,27 @@ function app() { return document.querySelector('#app'); }
     return '<a href="' + esc(url) + '" class="' + cls + '"' + ext + '>' + esc(n.text || '') + '</a>';
   }).join('');
 
-  // 侧栏：品牌名 + 主题切换 + 导航链接 + 语言切换
+  var hamburger = '<button class="hamburger-btn" id="hamburgerBtn" aria-label="' + t('nav.toggle') + '"><span></span><span></span><span></span></button>';
   var sidebar = '<div class="sidebar-overlay" id="sidebarOverlay"></div>'
     + '<aside class="mobile-sidebar" id="mobileSidebar">'
-    + '<div class="sidebar-header"><span class="sidebar-brand">Qingyu\'Blog</span>'
-    + '<button class="icon-btn sidebar-theme" id="themeToggleSide" aria-label="' + t('theme.toggle') + '" title="' + t('theme.toggle') + '">' + themeIcon() + '</button>'
-    + '<button class="sidebar-close" id="sidebarClose" aria-label="' + t('search.close') + '">✕</button></div>'
+    + '<div class="sidebar-header"><span class="sidebar-brand">' + esc(brandName) + '</span><button class="sidebar-close" id="sidebarClose" aria-label="' + t('search.close') + '">✕</button></div>'
     + '<nav class="sidebar-nav">' + sidebarLinks + '</nav>'
     + '<div class="sidebar-footer">'
     + '<div class="sidebar-actions">' + sideSearchBtn + sideLangSwitch + sideSup + '</div>'
     + '</div>'
     + '</aside>';
-
   var searchForm = '<form class="topbar-search" id="topbarSearch" role="search" onsubmit="return false">'
     + '<span class="ts-icon">' + searchIconSvg() + '</span>'
     + '<input id="globalSearchInput" type="search" placeholder="' + t('search.placeholder') + '" autocomplete="off" aria-label="' + t('search.toggle') + '">'
     + '<button type="button" class="ts-close" id="searchClose" aria-label="' + t('search.close') + '">✕</button>'
     + '</form>';
-  // 汉堡在 topbar-left 前面，与品牌/搜索同行
-  return sidebar
+  return hamburger
+    + sidebar
     + '<header class="topbar' + (active && _searchOpen ? ' searching' : '') + '">'
     + '<div class="container topbar-inner">'
-    + '<div class="topbar-left">' + hamburger + '<a class="brand" href="' + esc(href('/')) + '">Qingyu\'Blog</a></div>'
+    + '<div class="topbar-left"><a class="brand" href="' + esc(href('/')) + '">' + esc(brandName) + '</a></div>'
     + '<nav class="main-nav">' + links + '</nav>'
-    + '<div class="topbar-actions">' + searchBtn + langSwitch + themeBtn + '</div>'
+    + '<div class="topbar-actions">' + searchBtn + langSwitch + sup + '</div>'
     + searchForm
     + '</div>'
     + '<div class="search-panel" id="searchPanel"></div>'
@@ -1610,7 +1612,8 @@ function renderAbout() {
   if (intro && intro.content) {
     html += '<div class="article about-intro">' + renderMarkdown(intro.content) + '</div>';
   } else {
-    html += '<h3>Qingyu\'Blog</h3><p>' + t('about.desc') + '</p>';
+    var profile = cfg.profile || {};
+    html += '<h3>' + esc(profile.name || cfg.title || "Qingyu'Blog") + '</h3><p>' + esc(profile.bio || cfg.description || t('about.desc')) + '</p>';
   }
   html += '<hr class="about-sep">';
   html += '<div class="stat-grid"><div class="stat"><b>' + posts.length + '</b><span>' + t('about.posts') + '</span></div><div class="stat"><b>' + Object.keys(tags).length + '</b><span>' + t('about.tags') + '</span></div><div class="stat"><b>' + totalWords + '</b><span>' + t('about.totalWords') + '</span></div><div class="stat"><b>' + esc(latest || '-') + '</b><span>' + t('about.latestUpdate') + '</span></div></div>';
@@ -2676,7 +2679,6 @@ async function route() {
 }
 
 function bindGlobal() {
-  // 主题切换：顶栏
   var tb = document.querySelector('#themeToggle');
   if (tb) tb.addEventListener('click', function () { toggleTheme(); });
   bindTocScroll();
@@ -2696,13 +2698,11 @@ function bindMobileSidebar() {
     sidebar.classList.add('open');
     if (overlay) overlay.classList.add('show');
     document.body.style.overflow = 'hidden';
-    if (hamburger) hamburger.classList.add('open');
   }
   function closeSidebar() {
     sidebar.classList.remove('open');
     if (overlay) overlay.classList.remove('show');
     document.body.style.overflow = '';
-    if (hamburger) hamburger.classList.remove('open');
   }
   if (hamburger) hamburger.addEventListener('click', openSidebar);
   if (closeBtn) closeBtn.addEventListener('click', closeSidebar);
@@ -2711,21 +2711,13 @@ function bindMobileSidebar() {
   sidebar.querySelectorAll('.sidebar-link').forEach(function (a) {
     a.addEventListener('click', closeSidebar);
   });
-  // 侧边栏内的主题切换（独立 ID，与顶栏不冲突）
-  var sideTheme = document.querySelector('#themeToggleSide');
+  // 侧边栏内的语言切换/主题切换
+  var sideTheme = sidebar.querySelector('#themeToggleSide');
   if (sideTheme) sideTheme.addEventListener('click', function () { toggleTheme(); });
-  // 侧栏内语言切换
-  var sideLang = sidebar.querySelector('.lang-switch');
-  if (sideLang && !sideLang.dataset.bound) {
-    sideLang.dataset.bound = '1';
-    sideLang.addEventListener('change', function () {
-      window.__i18n.loadLocale(sideLang.value).then(function () { route(); });
-    });
-  }
 }
 
 function populateLangSwitch() {
-  var sels = document.querySelectorAll('.lang-switch');
+  var sels = document.querySelectorAll('#langSwitch, #langSwitchSide');
   if (!sels.length || !window.__i18n || typeof window.__i18n.getLanguages !== 'function') return;
   var langs = window.__i18n.getLanguages();
   var current = window.__i18n.getLocale ? window.__i18n.getLocale() : 'zh-CN';

@@ -1074,94 +1074,407 @@
     } finally { btn.disabled = false; }
   }
 
-  function openMediaPicker(content) {
+  async function openMediaPicker(content) {
     var mask = document.createElement('div');
     mask.className = 'ab-modal-mask';
-    mask.innerHTML = '<div class="ab-modal" style="max-width:560px"><h3>' + t('admin.media.title') + '</h3><div id="abPickerGrid" style="max-height:320px;overflow:auto"><span class="ab-spin"></span></div><div class="ab-modal-actions"><button class="ab-btn ghost" data-act="cancel">' + t('confirm.cancel') + '</button></div></div>';
-    document.body.appendChild(mask);
-    mask.addEventListener('click', function (e) { if (e.target === mask || e.target.getAttribute('data-act') === 'cancel') mask.remove(); });
-    if (!cloudOn()) { mask.querySelector('#abPickerGrid').innerHTML = '<div class="ab-empty"><p>' + t('admin.media.cloudOnly') + '</p></div>'; return; }
-    api('api/media').then(function (d) {
-      var list = (d && d.media) || [];
-      mask.querySelector('#abPickerGrid').innerHTML = list.length ? ('<div class="ab-media-grid">' + list.map(function (m) {
-        return '<div class="ab-media-card" data-url="' + esc(m.url) + '" style="cursor:pointer"><div class="ab-media-thumb"><img src="' + esc(m.url) + '" alt=""></div><div class="ab-media-meta"><div class="ab-media-name">' + esc(m.name || t('admin.media.colImage')) + '</div></div></div>';
-      }).join('') + '</div>') : '<div class="ab-empty"><p>' + t('admin.media.empty') + '</p></div>';
-      mask.querySelectorAll('[data-url]').forEach(function (c) { c.addEventListener('click', function () {
-        content.querySelector('#abCover').value = c.getAttribute('data-url'); mask.remove(); toast(t('admin.editor.selectMedia'), 'ok');
-      }); });
-    }).catch(function (e) { mask.querySelector('#abPickerGrid').innerHTML = '<div class="ab-empty"><p>' + t('admin.media.readFail') + '</p></div>'; });
-  }
+    mask.innerHTML =
+      '<div class="ab-modal" style="max-width:560px">' +
+      '<h3>' + t('admin.media.title') + '</h3>' +
+      '<div id="abPickerGrid" style="max-height:320px;overflow:auto"><span class="ab-spin"></span></div>' +
+      '<div class="ab-modal-actions"><button class="ab-btn ghost" data-act="cancel">' + t('confirm.cancel') + '</button></div>' +
+      '</div>';
 
-  /* ====================== 分类管理 ====================== */
-  async function pageCategories(content) {
-    content.innerHTML = '<div class="ab-page-head"><div><h1 class="ab-page-title">' + t('admin.categories.title') + '</h1><p class="ab-page-sub">' + t('admin.categories.desc') + '</p></div>' +
-      (cloudOn() ? '' : '<span class="ab-chip" style="background:var(--ab-primary-weak);color:var(--ab-primary)">' + t('admin.categories.staticHint') + '</span>') + '</div>' +
-      '<div class="ab-card"><div class="ab-table-wrap"><table class="ab-table"><thead><tr><th>' + t('admin.categories.colCategory') + '</th><th>' + t('admin.categories.colCount') + '</th><th class="col-actions">' + t('admin.postList.colActions') + '</th></tr></thead><tbody id="abCatBody"></tbody></table></div></div>';
-    await loadTerms(content, 'category', '#abCatBody');
-  }
-  async function pageTags(content) {
-    content.innerHTML = '<div class="ab-page-head"><div><h1 class="ab-page-title">' + t('admin.tags.title') + '</h1><p class="ab-page-sub">' + t('admin.tags.desc') + '</p></div>' +
-      (cloudOn() ? '' : '<span class="ab-chip" style="background:var(--ab-primary-weak);color:var(--ab-primary)">' + t('admin.categories.staticHint') + '</span>') + '</div>' +
-      '<div class="ab-card"><div class="ab-table-wrap"><table class="ab-table"><thead><tr><th>' + t('admin.tags.colTag') + '</th><th>' + t('admin.tags.colCount') + '</th><th class="col-actions">' + t('admin.postList.colActions') + '</th></tr></thead><tbody id="abTagBody"></tbody></table></div></div>';
-    await loadTerms(content, 'tags', '#abTagBody');
-  }
-  async function loadTerms(content, field, sel) {
-    var body = content.querySelector(sel);
-    body.innerHTML = '<tr><td colspan="3" style="text-align:center;padding:24px"><span class="ab-spin"></span> ' + t('admin.postList.loading') + '</td></tr>';
-    var posts = [];
-    try { posts = await listPosts(); } catch (e) {}
-    var map = {};
-    posts.forEach(function (p) {
-      var vals = field === 'category' ? [(p.category || t('admin.dashboard.uncategorized'))] : (p.tags || []);
-      vals.forEach(function (v) { var k = field === 'category' ? (p.category || t('admin.dashboard.uncategorized')) : v; if (k) map[k] = (map[k] || 0) + 1; });
+    document.body.appendChild(mask);
+
+    mask.addEventListener('click', function (e) {
+      if (
+        e.target === mask ||
+        e.target.getAttribute('data-act') === 'cancel'
+      ) {
+        mask.remove();
+      }
     });
-    var keys = Object.keys(map).sort(function (a, b) { return map[b] - map[a]; });
-    if (!keys.length) { body.innerHTML = '<tr><td colspan="3" style="text-align:center;padding:30px" class="ab-muted">' + (field === 'category' ? t('admin.categories.noData') : t('admin.tags.noData')) + '</td></tr>'; return; }
-    if (!cloudOn()) {
-      body.innerHTML = keys.map(function (k) { return '<tr><td><span class="ab-chip ' + (field === 'category' ? 'cat' : '') + '">' + esc(k) + '</span></td><td>' + map[k] + '</td><td class="ab-muted">' + t('admin.categories.staticHint') + '</td></tr>'; }).join('');
+
+    var local = await localWritable();
+
+    if (!cloudOn() && !local) {
+      mask.querySelector('#abPickerGrid').innerHTML =
+        '<div class="ab-empty"><p>' + t('admin.media.cloudOnly') + '</p></div>';
       return;
     }
+
+    var request = cloudOn()
+      ? api('api/media')
+      : localApi('/local-api/media');
+
+    request.then(function (d) {
+      var list = (d && d.media) || [];
+
+      mask.querySelector('#abPickerGrid').innerHTML = list.length
+        ? (
+          '<div class="ab-media-grid">' +
+          list.map(function (m) {
+            return (
+              '<div class="ab-media-card" data-url="' + esc(m.url) + '" style="cursor:pointer">' +
+              '<div class="ab-media-thumb"><img src="' + esc(m.url) + '" alt=""></div>' +
+              '<div class="ab-media-meta"><div class="ab-media-name">' +
+              esc(m.name || t('admin.media.colImage')) +
+              '</div></div></div>'
+            );
+          }).join('') +
+          '</div>'
+        )
+        : '<div class="ab-empty"><p>' + t('admin.media.empty') + '</p></div>';
+
+      mask.querySelectorAll('[data-url]').forEach(function (c) {
+        c.addEventListener('click', function () {
+          content.querySelector('#abCover').value =
+            c.getAttribute('data-url');
+
+          mask.remove();
+          toast(
+            t('admin.editor.selectMedia'),
+            'ok'
+          );
+        });
+      });
+    }).catch(function () {
+      mask.querySelector('#abPickerGrid').innerHTML =
+        '<div class="ab-empty"><p>' + t('admin.media.readFail') + '</p></div>';
+    });
+  }
+  /* ====================== 分类管理 ====================== */
+  async function pageCategories(content) {
+    var canWrite = cloudOn() || await localWritable();
+
+    content.innerHTML =
+      '<div class="ab-page-head"><div><h1 class="ab-page-title">' +
+      t('admin.categories.title') +
+      '</h1><p class="ab-page-sub">' +
+      t('admin.categories.desc') +
+      '</p></div>' +
+      (
+        canWrite
+          ? ''
+          : '<span class="ab-chip" style="background:var(--ab-primary-weak);color:var(--ab-primary)">' +
+            t('admin.categories.staticHint') +
+            '</span>'
+      ) +
+      '</div>' +
+      '<div class="ab-card"><div class="ab-table-wrap"><table class="ab-table"><thead><tr>' +
+      '<th>' + t('admin.categories.colCategory') + '</th>' +
+      '<th>' + t('admin.categories.colCount') + '</th>' +
+      '<th class="col-actions">' + t('admin.postList.colActions') + '</th>' +
+      '</tr></thead><tbody id="abCatBody"></tbody></table></div></div>';
+
+    await loadTerms(
+      content,
+      'category',
+      '#abCatBody'
+    );
+  }
+
+  async function pageTags(content) {
+    var canWrite = cloudOn() || await localWritable();
+
+    content.innerHTML =
+      '<div class="ab-page-head"><div><h1 class="ab-page-title">' +
+      t('admin.tags.title') +
+      '</h1><p class="ab-page-sub">' +
+      t('admin.tags.desc') +
+      '</p></div>' +
+      (
+        canWrite
+          ? ''
+          : '<span class="ab-chip" style="background:var(--ab-primary-weak);color:var(--ab-primary)">' +
+            t('admin.categories.staticHint') +
+            '</span>'
+      ) +
+      '</div>' +
+      '<div class="ab-card"><div class="ab-table-wrap"><table class="ab-table"><thead><tr>' +
+      '<th>' + t('admin.tags.colTag') + '</th>' +
+      '<th>' + t('admin.tags.colCount') + '</th>' +
+      '<th class="col-actions">' + t('admin.postList.colActions') + '</th>' +
+      '</tr></thead><tbody id="abTagBody"></tbody></table></div></div>';
+
+    await loadTerms(
+      content,
+      'tags',
+      '#abTagBody'
+    );
+  }
+
+  async function loadTerms(content, field, sel) {
+    var body = content.querySelector(sel);
+
+    body.innerHTML =
+      '<tr><td colspan="3" style="text-align:center;padding:24px">' +
+      '<span class="ab-spin"></span> ' +
+      t('admin.postList.loading') +
+      '</td></tr>';
+
+    var posts = [];
+
+    try {
+      posts = await listPosts();
+    } catch (e) {}
+
+    var map = {};
+
+    posts.forEach(function (p) {
+      var vals = field === 'category'
+        ? [(p.category || t('admin.dashboard.uncategorized'))]
+        : (p.tags || []);
+
+      vals.forEach(function (v) {
+        var k = field === 'category'
+          ? (p.category || t('admin.dashboard.uncategorized'))
+          : v;
+
+        if (k) {
+          map[k] = (map[k] || 0) + 1;
+        }
+      });
+    });
+
+    var keys = Object.keys(map).sort(function (a, b) {
+      return map[b] - map[a];
+    });
+
+    if (!keys.length) {
+      body.innerHTML =
+        '<tr><td colspan="3" style="text-align:center;padding:30px" class="ab-muted">' +
+        (
+          field === 'category'
+            ? t('admin.categories.noData')
+            : t('admin.tags.noData')
+        ) +
+        '</td></tr>';
+
+      return;
+    }
+
+    var canWrite = cloudOn() || await localWritable();
+
+    if (!canWrite) {
+      body.innerHTML = keys.map(function (k) {
+        return (
+          '<tr><td><span class="ab-chip ' +
+          (field === 'category' ? 'cat' : '') +
+          '">' +
+          esc(k) +
+          '</span></td><td>' +
+          map[k] +
+          '</td><td class="ab-muted">' +
+          t('admin.categories.staticHint') +
+          '</td></tr>'
+        );
+      }).join('');
+
+      return;
+    }
+
     body.innerHTML = keys.map(function (k) {
       var ek = enc(k);
-      return '<tr><td><span class="ab-chip ' + (field === 'category' ? 'cat' : '') + '">' + esc(k) + '</span></td><td>' + map[k] + '</td>' +
-        '<td class="col-actions"><button class="ab-btn sm" data-rename="' + ek + '">' + icon('pen', 13) + ' ' + (field === 'category' ? t('admin.categories.rename') : t('admin.tags.rename')) + '</button> ' +
-        '<button class="ab-btn sm danger" data-delterm="' + ek + '">' + icon('trash', 13) + ' ' + (field === 'category' ? t('admin.categories.delete') : t('admin.tags.delete')) + '</button></td></tr>';
+
+      return (
+        '<tr><td><span class="ab-chip ' +
+        (field === 'category' ? 'cat' : '') +
+        '">' +
+        esc(k) +
+        '</span></td><td>' +
+        map[k] +
+        '</td>' +
+        '<td class="col-actions">' +
+        '<button class="ab-btn sm" data-rename="' +
+        ek +
+        '">' +
+        icon('pen', 13) +
+        ' ' +
+        (
+          field === 'category'
+            ? t('admin.categories.rename')
+            : t('admin.tags.rename')
+        ) +
+        '</button> ' +
+        '<button class="ab-btn sm danger" data-delterm="' +
+        ek +
+        '">' +
+        icon('trash', 13) +
+        ' ' +
+        (
+          field === 'category'
+            ? t('admin.categories.delete')
+            : t('admin.tags.delete')
+        ) +
+        '</button></td></tr>'
+      );
     }).join('');
-    body.querySelectorAll('[data-rename]').forEach(function (b) { b.addEventListener('click', function () { renameTerm(content, field, dec(b.getAttribute('data-rename')), sel); }); });
-    body.querySelectorAll('[data-delterm]').forEach(function (b) { b.addEventListener('click', function () {
-      var old = dec(b.getAttribute('data-delterm'));
-      confirmModal((field === 'category' ? t('admin.categories.delete') : t('admin.tags.delete')), '<p class="ab-muted">' + (field === 'category' ? t('admin.categories.deleteConfirm', { name: esc(old) }) : t('admin.tags.deleteConfirm', { name: esc(old) })) + '</p>', async function () {
-        try { await applyTermChange(field, old, null); toast(field === 'category' ? t('admin.categories.renameOk') : t('admin.tags.renameOk'), 'ok'); loadTerms(content, field, sel); } catch (e) { toast(t('admin.postList.opFail') + (e.message || e), 'err'); }
-      }, t('admin.comments.delete'));
-    }); });
+
+    body.querySelectorAll('[data-rename]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        renameTerm(
+          content,
+          field,
+          dec(b.getAttribute('data-rename')),
+          sel
+        );
+      });
+    });
+
+    body.querySelectorAll('[data-delterm]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var old = dec(
+          b.getAttribute('data-delterm')
+        );
+
+        confirmModal(
+          (
+            field === 'category'
+              ? t('admin.categories.delete')
+              : t('admin.tags.delete')
+          ),
+          '<p class="ab-muted">' +
+          (
+            field === 'category'
+              ? t(
+                  'admin.categories.deleteConfirm',
+                  { name: esc(old) }
+                )
+              : t(
+                  'admin.tags.deleteConfirm',
+                  { name: esc(old) }
+                )
+          ) +
+          '</p>',
+          async function () {
+            try {
+              await applyTermChange(
+                field,
+                old,
+                null
+              );
+
+              toast(
+                field === 'category'
+                  ? t('admin.categories.renameOk')
+                  : t('admin.tags.renameOk'),
+                'ok'
+              );
+
+              loadTerms(
+                content,
+                field,
+                sel
+              );
+            } catch (e) {
+              toast(
+                t('admin.postList.opFail') +
+                (e.message || e),
+                'err'
+              );
+            }
+          },
+          t('admin.comments.delete')
+        );
+      });
+    });
   }
+
   async function renameTerm(content, field, old, sel) {
-    var nv = prompt(t('admin.categories.rename') + '「' + old + '」', old);
-    if (nv == null) return; nv = nv.trim();
+    var nv = prompt(
+      t('admin.categories.rename') +
+      '「' +
+      old +
+      '」',
+      old
+    );
+
+    if (nv == null) return;
+
+    nv = nv.trim();
+
     if (!nv || nv === old) return;
-    try { await applyTermChange(field, old, nv); toast(field === 'category' ? t('admin.categories.renameOk') : t('admin.tags.renameOk'), 'ok'); loadTerms(content, field, sel); } catch (e) { toast(t('admin.postList.opFail') + (e.message || e), 'err'); }
+
+    try {
+      await applyTermChange(
+        field,
+        old,
+        nv
+      );
+
+      toast(
+        field === 'category'
+          ? t('admin.categories.renameOk')
+          : t('admin.tags.renameOk'),
+        'ok'
+      );
+
+      loadTerms(
+        content,
+        field,
+        sel
+      );
+    } catch (e) {
+      toast(
+        t('admin.postList.opFail') +
+        (e.message || e),
+        'err'
+      );
+    }
   }
+
   async function applyTermChange(field, old, neo) {
     var summary = await listPosts();
     var ids = [];
+
     summary.forEach(function (p) {
-      if (field === 'category') { if ((p.category || t('admin.dashboard.uncategorized')) === old) ids.push(p.id); }
-      else { if ((p.tags || []).indexOf(old) >= 0) ids.push(p.id); }
+      if (field === 'category') {
+        if (
+          (
+            p.category ||
+            t('admin.dashboard.uncategorized')
+          ) === old
+        ) {
+          ids.push(p.id);
+        }
+      } else if (
+        (p.tags || []).indexOf(old) >= 0
+      ) {
+        ids.push(p.id);
+      }
     });
+
     for (var i = 0; i < ids.length; i++) {
-      // 必须取「完整」文章（含正文）再改字段后回写，否则云端 PUT 会清空正文
       var full = await getPost(ids[i]);
+
       if (!full) continue;
-      if (field === 'category') { full.category = neo || t('admin.dashboard.uncategorized'); }
-      else {
+
+      if (field === 'category') {
+        full.category =
+          neo ||
+          t('admin.dashboard.uncategorized');
+      } else {
         var tags = (full.tags || []).slice();
         var j = tags.indexOf(old);
-        if (j >= 0) { if (neo) { tags[j] = neo; } else { tags.splice(j, 1); } full.tags = tags; }
+
+        if (j >= 0) {
+          if (neo) {
+            tags[j] = neo;
+          } else {
+            tags.splice(j, 1);
+          }
+
+          full.tags = tags;
+        }
       }
-      await savePost(full, false);
+
+      await savePost(
+        full,
+        false
+      );
     }
   }
-
   /* ====================== 评论管理 ====================== */
   async function pageComments(content, filter) {
     var title = filter === 'pending' ? t('admin.comments.pending') : t('admin.comments.title');
@@ -1219,187 +1532,964 @@
   }
 
   /* ====================== 媒体库 ====================== */
-  function pageMedia(content) {
-    content.innerHTML = '<div class="ab-page-head"><div><h1 class="ab-page-title">' + t('admin.media.title') + '</h1><p class="ab-page-sub">' + t('admin.media.desc') + '</p></div>' +
-      (cloudOn() ? '<label class="ab-btn primary">' + icon('upload', 15) + ' ' + t('admin.media.upload') + '<input type="file" id="abUpload" accept="image/*" multiple hidden></label>' : '<span class="ab-chip" style="background:var(--ab-primary-weak);color:var(--ab-primary)">' + t('admin.categories.staticHint') + '</span>') + '</div>' +
-      (cloudOn() ? '' : '<div class="ab-card"><div class="ab-empty"><div class="ab-empty-ico">🖼</div><p>' + t('admin.media.cloudOnly') + '</p></div></div>');
-    if (!cloudOn()) return;
-    content.innerHTML += '<div class="ab-media-grid" id="abMediaGrid"><span class="ab-spin"></span></div>';
+  async function pageMedia(content) {
+    var canWrite = cloudOn() || await localWritable();
+
+    content.innerHTML =
+      '<div class="ab-page-head"><div><h1 class="ab-page-title">' +
+      t('admin.media.title') +
+      '</h1><p class="ab-page-sub">' +
+      t('admin.media.desc') +
+      '</p></div>' +
+      (
+        canWrite
+          ? (
+            '<label class="ab-btn primary">' +
+            icon('upload', 15) +
+            ' ' +
+            t('admin.media.upload') +
+            '<input type="file" id="abUpload" accept="image/*" multiple hidden>' +
+            '</label>'
+          )
+          : (
+            '<span class="ab-chip" style="background:var(--ab-primary-weak);color:var(--ab-primary)">' +
+            t('admin.categories.staticHint') +
+            '</span>'
+          )
+      ) +
+      '</div>';
+
+    if (!canWrite) {
+      content.innerHTML +=
+        '<div class="ab-card"><div class="ab-empty">' +
+        '<div class="ab-empty-ico">🖼</div>' +
+        '<p>' +
+        t('admin.media.cloudOnly') +
+        '</p></div></div>';
+
+      return;
+    }
+
+    content.innerHTML +=
+      '<div class="ab-media-grid" id="abMediaGrid">' +
+      '<span class="ab-spin"></span>' +
+      '</div>';
+
     var up = content.querySelector('#abUpload');
-    up.addEventListener('change', function () { uploadFiles(content, up.files); });
+
+    if (up) {
+      up.addEventListener('change', function () {
+        uploadFiles(
+          content,
+          up.files
+        );
+      });
+    }
+
     loadMedia(content);
   }
+
   async function loadMedia(content) {
     var grid = content.querySelector('#abMediaGrid');
-    grid.innerHTML = '<span class="ab-spin"></span> ' + t('admin.postList.loading');
+
+    if (!grid) return;
+
+    grid.innerHTML =
+      '<span class="ab-spin"></span> ' +
+      t('admin.postList.loading');
+
     try {
-      var d = await api('api/media');
+      var d = cloudOn()
+        ? await api('api/media')
+        : await localApi('/local-api/media');
+
       var list = (d && d.media) || [];
-      grid.innerHTML = list.length ? list.map(function (m) {
-        return '<div class="ab-media-card">' +
-          '<div class="ab-media-thumb"><img src="' + esc(m.url) + '" alt="' + esc(m.name || '') + '"></div>' +
-          '<div class="ab-media-meta"><div class="ab-media-name">' + esc(m.name || t('admin.media.colImage')) + '</div><div class="ab-media-size">' + fmtSize(m.size) + '</div></div>' +
-          '<div class="ab-media-actions"><button class="ab-btn sm" data-copy="' + enc(m.url) + '">' + t('admin.media.copyLink') + '</button><button class="ab-btn sm danger" data-delmedia="' + enc(m.id) + '">' + icon('trash', 13) + ' ' + t('admin.media.delete') + '</button></div>' +
-        '</div>';
-      }).join('') : '<div class="ab-card ab-empty"><div class="ab-empty-ico">🖼</div><p>' + t('admin.media.empty') + '</p></div>';
-      grid.querySelectorAll('[data-copy]').forEach(function (b) { b.addEventListener('click', function () { copyText(dec(b.getAttribute('data-copy'))); toast(t('admin.media.copied'), 'ok'); }); });
-      grid.querySelectorAll('[data-delmedia]').forEach(function (b) { b.addEventListener('click', function () {
-        var mid = dec(b.getAttribute('data-delmedia'));
-        confirmModal(t('admin.media.delete'), '<p class="ab-muted">' + t('admin.media.deleteConfirm') + '</p>', async function () {
-          try { await api('api/media/' + enc(mid), { method: 'DELETE' }); toast(t('admin.media.deleted'), 'ok'); loadMedia(content); } catch (e) { toast(t('admin.postList.opFail') + (e.message || e), 'err'); }
-        }, t('admin.comments.delete'));
-      }); });
-    } catch (e) { grid.innerHTML = '<div class="ab-empty"><p>' + t('admin.postList.loadFail') + esc(e.message || e) + '</p></div>'; }
+
+      grid.innerHTML = list.length
+        ? list.map(function (m) {
+          return (
+            '<div class="ab-media-card">' +
+            '<div class="ab-media-thumb"><img src="' +
+            esc(m.url) +
+            '" alt="' +
+            esc(m.name || '') +
+            '"></div>' +
+            '<div class="ab-media-meta">' +
+            '<div class="ab-media-name">' +
+            esc(
+              m.name ||
+              t('admin.media.colImage')
+            ) +
+            '</div>' +
+            '<div class="ab-media-size">' +
+            fmtSize(m.size) +
+            '</div></div>' +
+            '<div class="ab-media-actions">' +
+            '<button class="ab-btn sm" data-copy="' +
+            enc(m.url) +
+            '">' +
+            t('admin.media.copyLink') +
+            '</button>' +
+            '<button class="ab-btn sm danger" data-delmedia="' +
+            enc(m.id) +
+            '">' +
+            icon('trash', 13) +
+            ' ' +
+            t('admin.media.delete') +
+            '</button></div>' +
+            '</div>'
+          );
+        }).join('')
+        : (
+          '<div class="ab-card ab-empty">' +
+          '<div class="ab-empty-ico">🖼</div>' +
+          '<p>' +
+          t('admin.media.empty') +
+          '</p></div>'
+        );
+
+      grid.querySelectorAll('[data-copy]').forEach(function (b) {
+        b.addEventListener('click', function () {
+          copyText(
+            dec(
+              b.getAttribute('data-copy')
+            )
+          );
+
+          toast(
+            t('admin.media.copied'),
+            'ok'
+          );
+        });
+      });
+
+      grid.querySelectorAll('[data-delmedia]').forEach(function (b) {
+        b.addEventListener('click', function () {
+          var mid = dec(
+            b.getAttribute('data-delmedia')
+          );
+
+          confirmModal(
+            t('admin.media.delete'),
+            '<p class="ab-muted">' +
+            t('admin.media.deleteConfirm') +
+            '</p>',
+            async function () {
+              try {
+                if (cloudOn()) {
+                  await api(
+                    'api/media/' + enc(mid),
+                    { method: 'DELETE' }
+                  );
+                } else {
+                  await localApi(
+                    '/local-api/media/' +
+                    encodeURIComponent(mid),
+                    { method: 'DELETE' }
+                  );
+                }
+
+                toast(
+                  t('admin.media.deleted'),
+                  'ok'
+                );
+
+                loadMedia(content);
+              } catch (e) {
+                toast(
+                  t('admin.postList.opFail') +
+                  (e.message || e),
+                  'err'
+                );
+              }
+            },
+            t('admin.comments.delete')
+          );
+        });
+      });
+    } catch (e) {
+      grid.innerHTML =
+        '<div class="ab-empty"><p>' +
+        t('admin.postList.loadFail') +
+        esc(e.message || e) +
+        '</p></div>';
+    }
   }
+
   function copyText(t) {
-    try { if (navigator.clipboard) navigator.clipboard.writeText(t); else { var ta = document.createElement('textarea'); ta.value = t; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); } } catch (e) {}
+    try {
+      if (navigator.clipboard) {
+        navigator.clipboard.writeText(t);
+      } else {
+        var ta = document.createElement('textarea');
+        ta.value = t;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        ta.remove();
+      }
+    } catch (e) {}
   }
+
   async function uploadFiles(content, files) {
     if (!files || !files.length) return;
+
     for (var i = 0; i < files.length; i++) {
       var file = files[i];
-      if (!/^image\//.test(file.type)) { toast(file.name + ' ' + t('admin.media.notImage'), 'err'); continue; }
-      if (file.size > 2 * 1048576) { toast(file.name + ' ' + t('admin.media.tooLarge'), 'err'); continue; }
+
+      if (!/^image\//.test(file.type)) {
+        toast(
+          file.name +
+          ' ' +
+          t('admin.media.notImage'),
+          'err'
+        );
+        continue;
+      }
+
+      if (file.size > 8 * 1048576) {
+        toast(
+          file.name +
+          ' ' +
+          t('admin.media.tooLarge'),
+          'err'
+        );
+        continue;
+      }
+
       try {
         var dataUrl = await readAsDataURL(file);
-        await api('api/media', { method: 'POST', body: JSON.stringify({ name: file.name, url: dataUrl, type: file.type, size: file.size }) });
-        toast(t('admin.media.uploaded') + ' ' + file.name, 'ok');
-      } catch (e) { toast(t('admin.media.uploadFail') + (e.message || e), 'err'); }
+
+        if (cloudOn()) {
+          await api(
+            'api/media',
+            {
+              method: 'POST',
+              body: JSON.stringify({
+                name: file.name,
+                url: dataUrl,
+                type: file.type,
+                size: file.size
+              })
+            }
+          );
+        } else {
+          await localApi(
+            '/local-api/media',
+            {
+              method: 'POST',
+              body: JSON.stringify({
+                name: file.name,
+                dataUrl: dataUrl,
+                type: file.type,
+                size: file.size
+              })
+            }
+          );
+        }
+
+        toast(
+          t('admin.media.uploaded') +
+          ' ' +
+          file.name,
+          'ok'
+        );
+      } catch (e) {
+        toast(
+          t('admin.media.uploadFail') +
+          (e.message || e),
+          'err'
+        );
+      }
     }
+
     loadMedia(content);
   }
+
   function readAsDataURL(file) {
     return new Promise(function (res, rej) {
       var r = new FileReader();
-      r.onload = function () { res(r.result); };
-      r.onerror = function () { rej(new Error(t('admin.media.readFail'))); };
+
+      r.onload = function () {
+        res(r.result);
+      };
+
+      r.onerror = function () {
+        rej(
+          new Error(
+            t('admin.media.readFail')
+          )
+        );
+      };
+
       r.readAsDataURL(file);
     });
   }
-
   /* ====================== 博客设置 ====================== */
-  function pageSettings(content) {
-    content.innerHTML = '<div class="ab-page-head"><div><h1 class="ab-page-title">' + t('admin.settings.title') + '</h1><p class="ab-page-sub">' + t('admin.settings.desc') + '</p></div>' +
-      (cloudOn() ? '<button class="ab-btn primary" id="abSaveSettings">' + icon('save', 15) + ' ' + t('admin.settings.save') + '</button>' : '<span class="ab-chip" style="background:var(--ab-primary-weak);color:var(--ab-primary)">' + t('admin.categories.staticHint') + '</span>') + '</div>' +
-      (cloudOn() ? '' : '<div class="ab-card"><div class="ab-empty"><div class="ab-empty-ico">⚙️</div><p>' + t('admin.settings.desc') + '</p></div></div>');
-    if (!cloudOn()) return;
-    content.innerHTML += '<div class="ab-tabs">' +
-      '<div class="ab-tab active" data-tab="site">' + t('admin.settings.siteInfo') + '</div>' +
-      '<div class="ab-tab" data-tab="profile">' + t('admin.settings.profile') + '</div>' +
-      '<div class="ab-tab" data-tab="nav">' + t('admin.settings.navMenu') + '</div>' +
-      '</div><div id="abSettingsBody"></div>';
-    content.querySelectorAll('.ab-tab').forEach(function (t) { t.addEventListener('click', function () { content.querySelectorAll('.ab-tab').forEach(function (x) { x.classList.remove('active'); }); t.classList.add('active'); renderSettingsTab(content, t.getAttribute('data-tab')); }); });
-    renderSettingsTab(content, 'site');
-    content.querySelector('#abSaveSettings').addEventListener('click', function () { saveSettings(content); });
+  async function pageSettings(content) {
+    var canWrite = cloudOn() || await localWritable();
+
+    content.innerHTML =
+      '<div class="ab-page-head"><div><h1 class="ab-page-title">' +
+      t('admin.settings.title') +
+      '</h1><p class="ab-page-sub">' +
+      t('admin.settings.desc') +
+      '</p></div>' +
+      (
+        canWrite
+          ? (
+            '<button class="ab-btn primary" id="abSaveSettings">' +
+            icon('save', 15) +
+            ' ' +
+            t('admin.settings.save') +
+            '</button>'
+          )
+          : (
+            '<span class="ab-chip" style="background:var(--ab-primary-weak);color:var(--ab-primary)">' +
+            t('admin.categories.staticHint') +
+            '</span>'
+          )
+      ) +
+      '</div>';
+
+    if (!canWrite) {
+      content.innerHTML +=
+        '<div class="ab-card"><div class="ab-empty">' +
+        '<div class="ab-empty-ico">⚙️</div>' +
+        '<p>' +
+        t('admin.settings.desc') +
+        '</p></div></div>';
+
+      return;
+    }
+
+    content.innerHTML +=
+      '<div class="ab-tabs">' +
+      '<div class="ab-tab active" data-tab="site">' +
+      t('admin.settings.siteInfo') +
+      '</div>' +
+      '<div class="ab-tab" data-tab="profile">' +
+      t('admin.settings.profile') +
+      '</div>' +
+      '<div class="ab-tab" data-tab="nav">' +
+      t('admin.settings.navMenu') +
+      '</div>' +
+      '</div>' +
+      '<div id="abSettingsBody"></div>';
+
+    content.querySelectorAll('.ab-tab').forEach(function (tab) {
+      tab.addEventListener('click', function () {
+        stashSettingsFromCurrentTab(content);
+
+        content.querySelectorAll('.ab-tab').forEach(function (x) {
+          x.classList.remove('active');
+        });
+
+        tab.classList.add('active');
+
+        renderSettingsTab(
+          content,
+          tab.getAttribute('data-tab')
+        );
+      });
+    });
+
+    renderSettingsTab(
+      content,
+      'site'
+    );
+
+    content.querySelector('#abSaveSettings').addEventListener('click', function () {
+      saveSettings(content);
+    });
+
     loadSettings(content);
   }
+
   var settingsCache = {};
+
   async function loadSettings(content) {
-    try { var d = await api('api/settings'); settingsCache = (d && d.settings) || {}; } catch (e) { settingsCache = {}; }
+    try {
+      var d = cloudOn()
+        ? await api('api/settings')
+        : await localApi('/local-api/settings');
+
+      settingsCache =
+        (d && d.settings) ||
+        {};
+    } catch (e) {
+      settingsCache = {};
+    }
+
     fillSettings(content);
   }
+
   function fillSettings(content) {
-    var s = settingsCache;
+    var s = settingsCache || {};
     var site = safeJson(s.site_info);
     var prof = safeJson(s.profile);
+    var cfgProf = cfg().profile || {};
     var navRaw = s.nav;
-    if (content.querySelector('#abSiteName')) content.querySelector('#abSiteName').value = site.name || (cfg().footer && cfg().footer.copyrightName) || '';
-    if (content.querySelector('#abSiteDesc')) content.querySelector('#abSiteDesc').value = site.desc || '';
-    if (content.querySelector('#abSiteAvatar')) content.querySelector('#abSiteAvatar').value = site.avatar || '';
-    if (content.querySelector('#abFooterCopyright')) content.querySelector('#abFooterCopyright').value = site.copyright || (cfg().footer && cfg().footer.copyrightName) || '';
-    if (content.querySelector('#abFooterText')) content.querySelector('#abFooterText').value = site.footerText || (cfg().footer && cfg().footer.decl) || '';
-    if (content.querySelector('#abModerate')) content.querySelector('#abModerate').checked = s.moderate_comments === '1';
-    if (content.querySelector('#abProfileName')) content.querySelector('#abProfileName').value = prof.name || '';
-    if (content.querySelector('#abProfileBio')) content.querySelector('#abProfileBio').value = prof.bio || '';
-    if (content.querySelector('#abProfileAvatar')) content.querySelector('#abProfileAvatar').value = prof.avatar || '';
-    if (content.querySelector('#abProfileEmail')) content.querySelector('#abProfileEmail').value = prof.email || '';
-    if (content.querySelector('#abNavJson')) content.querySelector('#abNavJson').value = navRaw ? (typeof navRaw === 'string' ? navRaw : JSON.stringify(navRaw, null, 2)) : JSON.stringify(cfg().nav || [], null, 2);
+
+    if (content.querySelector('#abSiteName')) {
+      content.querySelector('#abSiteName').value =
+        site.name ||
+        cfg().title ||
+        (cfg().footer && cfg().footer.copyrightName) ||
+        '';
+    }
+
+    if (content.querySelector('#abSiteDesc')) {
+      content.querySelector('#abSiteDesc').value =
+        site.desc ||
+        cfg().description ||
+        '';
+    }
+
+    if (content.querySelector('#abSiteAvatar')) {
+      content.querySelector('#abSiteAvatar').value =
+        site.avatar ||
+        cfg().siteAvatar ||
+        '';
+    }
+
+    if (content.querySelector('#abFooterCopyright')) {
+      content.querySelector('#abFooterCopyright').value =
+        site.copyright ||
+        (cfg().footer && cfg().footer.copyrightName) ||
+        cfg().title ||
+        '';
+    }
+
+    if (content.querySelector('#abFooterText')) {
+      content.querySelector('#abFooterText').value =
+        site.footerText ||
+        (cfg().footer && cfg().footer.decl) ||
+        '';
+    }
+
+    if (content.querySelector('#abModerate')) {
+      content.querySelector('#abModerate').checked =
+        String(s.moderate_comments || '0') === '1';
+    }
+
+    if (content.querySelector('#abProfileName')) {
+      content.querySelector('#abProfileName').value =
+        prof.name ||
+        cfgProf.name ||
+        '';
+    }
+
+    if (content.querySelector('#abProfileBio')) {
+      content.querySelector('#abProfileBio').value =
+        prof.bio ||
+        cfgProf.bio ||
+        '';
+    }
+
+    if (content.querySelector('#abProfileAvatar')) {
+      content.querySelector('#abProfileAvatar').value =
+        prof.avatar ||
+        cfgProf.avatar ||
+        '';
+    }
+
+    if (content.querySelector('#abProfileEmail')) {
+      content.querySelector('#abProfileEmail').value =
+        prof.email ||
+        cfgProf.email ||
+        '';
+    }
+
+    if (content.querySelector('#abNavJson')) {
+      content.querySelector('#abNavJson').value =
+        navRaw
+          ? (
+            typeof navRaw === 'string'
+              ? navRaw
+              : JSON.stringify(
+                  navRaw,
+                  null,
+                  2
+                )
+          )
+          : JSON.stringify(
+              cfg().nav || [],
+              null,
+              2
+            );
+    }
+
+    var prev = content.querySelector('#abProfPrev');
+
+    if (prev) {
+      prev.src =
+        prof.avatar ||
+        cfgProf.avatar ||
+        '';
+    }
   }
-  function safeJson(v) { if (!v) return {}; if (typeof v === 'object') return v; try { return JSON.parse(v); } catch (e) { return {}; } }
+
+  function safeJson(v) {
+    if (!v) return {};
+
+    if (typeof v === 'object') {
+      return v;
+    }
+
+    try {
+      return JSON.parse(v);
+    } catch (e) {
+      return {};
+    }
+  }
+
+  function stashSettingsFromCurrentTab(content) {
+    settingsCache =
+      settingsCache ||
+      {};
+
+    var site =
+      safeJson(settingsCache.site_info);
+
+    var prof =
+      safeJson(settingsCache.profile);
+
+    var siteName =
+      content.querySelector('#abSiteName');
+
+    if (siteName) {
+      site.name = val(content, '#abSiteName');
+      site.desc = val(content, '#abSiteDesc');
+      site.avatar = val(content, '#abSiteAvatar');
+      site.copyright = val(content, '#abFooterCopyright');
+      site.footerText = val(content, '#abFooterText');
+      settingsCache.site_info = site;
+
+      var moderate =
+        content.querySelector('#abModerate');
+
+      if (moderate) {
+        settingsCache.moderate_comments =
+          moderate.checked
+            ? '1'
+            : '0';
+      }
+    }
+
+    if (content.querySelector('#abProfileName')) {
+      prof.name = val(content, '#abProfileName');
+      prof.bio = val(content, '#abProfileBio');
+      prof.avatar = val(content, '#abProfileAvatar');
+      prof.email = val(content, '#abProfileEmail');
+      settingsCache.profile = prof;
+    }
+
+    if (content.querySelector('#abNavJson')) {
+      var navText = val(content, '#abNavJson');
+
+      try {
+        settingsCache.nav =
+          JSON.parse(navText || '[]');
+      } catch (e) {}
+    }
+  }
+
   function renderSettingsTab(content, tab) {
-    var body = content.querySelector('#abSettingsBody');
+    var body =
+      content.querySelector('#abSettingsBody');
+
     if (tab === 'site') {
-      body.innerHTML = '<div class="ab-card" style="max-width:620px">' +
-        '<div class="ab-field"><label class="ab-label">' + t('admin.settings.siteName') + '</label><input class="ab-input" id="abSiteName"></div>' +
-        '<div class="ab-field"><label class="ab-label">' + t('admin.settings.siteDesc') + '</label><textarea class="ab-textarea" id="abSiteDesc" style="min-height:70px"></textarea></div>' +
-        '<div class="ab-field"><label class="ab-label">' + t('admin.settings.siteAvatar') + '</label><input class="ab-input" id="abSiteAvatar"></div>' +
-        '<div class="ab-field"><label class="ab-label">' + t('admin.settings.footerCopyright') + '</label><input class="ab-input" id="abFooterCopyright"></div>' +
-        '<div class="ab-field"><label class="ab-label">' + t('admin.settings.footerDecl') + '</label><textarea class="ab-textarea" id="abFooterText" style="min-height:70px"></textarea></div>' +
-        '<div class="ab-field"><label style="display:flex;align-items:center;gap:8px;font-size:14px;cursor:pointer"><input type="checkbox" id="abModerate"> ' + t('admin.settings.moderateComments') + '</label></div>' +
-      '</div>';
+      body.innerHTML =
+        '<div class="ab-card" style="max-width:620px">' +
+        '<div class="ab-field"><label class="ab-label">' +
+        t('admin.settings.siteName') +
+        '</label><input class="ab-input" id="abSiteName"></div>' +
+        '<div class="ab-field"><label class="ab-label">' +
+        t('admin.settings.siteDesc') +
+        '</label><textarea class="ab-textarea" id="abSiteDesc" style="min-height:70px"></textarea></div>' +
+        '<div class="ab-field"><label class="ab-label">' +
+        t('admin.settings.siteAvatar') +
+        '</label><input class="ab-input" id="abSiteAvatar"></div>' +
+        '<div class="ab-field"><label class="ab-label">' +
+        t('admin.settings.footerCopyright') +
+        '</label><input class="ab-input" id="abFooterCopyright"></div>' +
+        '<div class="ab-field"><label class="ab-label">' +
+        t('admin.settings.footerDecl') +
+        '</label><textarea class="ab-textarea" id="abFooterText" style="min-height:70px"></textarea></div>' +
+        '<div class="ab-field"><label style="display:flex;align-items:center;gap:8px;font-size:14px;cursor:pointer">' +
+        '<input type="checkbox" id="abModerate"> ' +
+        t('admin.settings.moderateComments') +
+        '</label></div>' +
+        '</div>';
     } else if (tab === 'profile') {
-      body.innerHTML = '<div class="ab-card" style="max-width:620px">' +
-        '<div class="ab-avatar-edit"><img class="ab-avatar-prev" id="abProfPrev" src=""><div><div class="ab-label" style="margin:0">' + t('admin.settings.profileAvatar') + '</div><div class="ab-hint">' + t('admin.settings.avatarUrl') + '</div></div></div>' +
-        '<div class="ab-field"><label class="ab-label">' + t('admin.settings.nickname') + '</label><input class="ab-input" id="abProfileName"></div>' +
-        '<div class="ab-field"><label class="ab-label">' + t('admin.settings.bio') + '</label><textarea class="ab-textarea" id="abProfileBio" style="min-height:70px"></textarea></div>' +
-        '<div class="ab-field"><label class="ab-label">' + t('admin.settings.avatarUrl') + '</label><input class="ab-input" id="abProfileAvatar"></div>' +
-        '<div class="ab-field"><label class="ab-label">' + t('admin.settings.email') + '</label><input class="ab-input" id="abProfileEmail"></div>' +
-      '</div>';
-      var pa = body.querySelector('#abProfileAvatar');
-      var pv = body.querySelector('#abProfPrev');
-      pa.addEventListener('input', function () { pv.src = pa.value; });
+      body.innerHTML =
+        '<div class="ab-card" style="max-width:620px">' +
+        '<div class="ab-avatar-edit">' +
+        '<img class="ab-avatar-prev" id="abProfPrev" src="">' +
+        '<div><div class="ab-label" style="margin:0">' +
+        t('admin.settings.profileAvatar') +
+        '</div><div class="ab-hint">' +
+        t('admin.settings.avatarUrl') +
+        '</div></div></div>' +
+        '<div class="ab-field"><label class="ab-label">' +
+        t('admin.settings.nickname') +
+        '</label><input class="ab-input" id="abProfileName"></div>' +
+        '<div class="ab-field"><label class="ab-label">' +
+        t('admin.settings.bio') +
+        '</label><textarea class="ab-textarea" id="abProfileBio" style="min-height:70px"></textarea></div>' +
+        '<div class="ab-field"><label class="ab-label">' +
+        t('admin.settings.avatarUrl') +
+        '</label><input class="ab-input" id="abProfileAvatar"></div>' +
+        '<div class="ab-field"><label class="ab-label">' +
+        t('admin.settings.email') +
+        '</label><input class="ab-input" id="abProfileEmail"></div>' +
+        '</div>';
+
+      var pa =
+        body.querySelector('#abProfileAvatar');
+
+      var pv =
+        body.querySelector('#abProfPrev');
+
+      pa.addEventListener('input', function () {
+        pv.src = pa.value;
+      });
     } else if (tab === 'nav') {
       var defaultNav = [
-        { text: t('admin.settings.defaultHome'), url: '/' },
-        { text: t('admin.settings.defaultArchive'), url: '/archive' },
-        { text: t('admin.settings.defaultAbout'), url: '/about' },
-        { text: t('admin.settings.defaultFriends'), url: '/links' }
+        {
+          text: t('admin.settings.defaultHome'),
+          url: '/'
+        },
+        {
+          text: t('admin.settings.defaultArchive'),
+          url: '/archive'
+        },
+        {
+          text: t('admin.settings.defaultAbout'),
+          url: '/about'
+        },
+        {
+          text: t('admin.settings.defaultFriends'),
+          url: '/links'
+        }
       ];
-      var exJson = JSON.stringify(settingsCache.nav ? (typeof settingsCache.nav === 'string' ? JSON.parse(settingsCache.nav || '[]') : settingsCache.nav) : (cfg().nav || defaultNav), null, 2);
-      body.innerHTML = '<div class="ab-card" style="max-width:720px">' +
-        '<div class="ab-section-title">' + icon('list', 15) + ' ' + t('admin.settings.visualEditor') + '</div>' +
+
+      var currentNav =
+        settingsCache.nav;
+
+      if (!currentNav) {
+        currentNav =
+          cfg().nav ||
+          defaultNav;
+      }
+
+      if (typeof currentNav === 'string') {
+        try {
+          currentNav =
+            JSON.parse(
+              currentNav ||
+              '[]'
+            );
+        } catch (e) {
+          currentNav =
+            defaultNav;
+        }
+      }
+
+      var exJson =
+        JSON.stringify(
+          currentNav,
+          null,
+          2
+        );
+
+      body.innerHTML =
+        '<div class="ab-card" style="max-width:720px">' +
+        '<div class="ab-section-title">' +
+        icon('list', 15) +
+        ' ' +
+        t('admin.settings.visualEditor') +
+        '</div>' +
         '<div id="abNavVisual" class="ab-nav-editor"></div>' +
-        '<div class="ab-section-title" style="margin-top:16px">' + icon('doc', 15) + ' ' + t('admin.settings.jsonEditor') + '</div>' +
-        '<div class="ab-hint" style="margin-bottom:8px">' + t('admin.settings.navJsonHint') + '</div>' +
+        '<div class="ab-section-title" style="margin-top:16px">' +
+        icon('doc', 15) +
+        ' ' +
+        t('admin.settings.jsonEditor') +
+        '</div>' +
+        '<div class="ab-hint" style="margin-bottom:8px">' +
+        t('admin.settings.navJsonHint') +
+        '</div>' +
         '<textarea class="ab-textarea" id="abNavJson" style="min-height:180px;font-family:monospace;font-size:13px"></textarea>' +
         '<div class="ab-row" style="margin-top:8px;gap:8px">' +
-          '<button class="ab-btn sm" id="abNavFormat">' + t('admin.settings.formatJson') + '</button>' +
-          '<button class="ab-btn sm" id="abNavReset">' + t('admin.settings.resetDefault') + '</button>' +
+        '<button class="ab-btn sm" id="abNavFormat">' +
+        t('admin.settings.formatJson') +
+        '</button>' +
+        '<button class="ab-btn sm" id="abNavReset">' +
+        t('admin.settings.resetDefault') +
+        '</button>' +
         '</div>' +
-      '</div>';
-      renderNavVisual(content, exJson);
-      // JSON 格式化
-      var fmtBtn = content.querySelector('#abNavFormat');
-      if (fmtBtn) fmtBtn.addEventListener('click', function () {
-        var ta = content.querySelector('#abNavJson');
-        try { ta.value = JSON.stringify(JSON.parse(ta.value), null, 2); toast(t('admin.settings.formatted'), 'ok'); } catch (e) { toast(t('admin.settings.jsonError'), 'err'); }
-      });
-      // 恢复默认
-      var rstBtn = content.querySelector('#abNavReset');
-      if (rstBtn) rstBtn.addEventListener('click', function () {
-        content.querySelector('#abNavJson').value = JSON.stringify(defaultNav, null, 2);
-        renderNavVisual(content, JSON.stringify(defaultNav, null, 2));
-        toast(t('admin.settings.resetDone'), 'ok');
-      });
-      // 双向同步：JSON textarea → 可视化
-      content.querySelector('#abNavJson').addEventListener('input', debounce(function () {
-        renderNavVisual(content, content.querySelector('#abNavJson').value);
-      }, 400));
+        '</div>';
+
+      content.querySelector('#abNavJson').value =
+        exJson;
+
+      renderNavVisual(
+        content,
+        exJson
+      );
+
+      var fmtBtn =
+        content.querySelector('#abNavFormat');
+
+      if (fmtBtn) {
+        fmtBtn.addEventListener('click', function () {
+          var ta =
+            content.querySelector('#abNavJson');
+
+          try {
+            ta.value =
+              JSON.stringify(
+                JSON.parse(ta.value),
+                null,
+                2
+              );
+
+            toast(
+              t('admin.settings.formatted'),
+              'ok'
+            );
+          } catch (e) {
+            toast(
+              t('admin.settings.jsonError'),
+              'err'
+            );
+          }
+        });
+      }
+
+      var rstBtn =
+        content.querySelector('#abNavReset');
+
+      if (rstBtn) {
+        rstBtn.addEventListener('click', function () {
+          content.querySelector('#abNavJson').value =
+            JSON.stringify(
+              defaultNav,
+              null,
+              2
+            );
+
+          renderNavVisual(
+            content,
+            JSON.stringify(
+              defaultNav,
+              null,
+              2
+            )
+          );
+
+          toast(
+            t('admin.settings.resetDone'),
+            'ok'
+          );
+        });
+      }
+
+      content.querySelector('#abNavJson').addEventListener(
+        'input',
+        debounce(function () {
+          renderNavVisual(
+            content,
+            content.querySelector('#abNavJson').value
+          );
+        }, 400)
+      );
     }
+
     fillSettings(content);
   }
-  async function saveSettings(content) {
-    var site = {
-      name: val(content, '#abSiteName'), desc: val(content, '#abSiteDesc'), avatar: val(content, '#abSiteAvatar'),
-      copyright: val(content, '#abFooterCopyright'), footerText: val(content, '#abFooterText')
-    };
-    var prof = {
-      name: val(content, '#abProfileName'), bio: val(content, '#abProfileBio'),
-      avatar: val(content, '#abProfileAvatar'), email: val(content, '#abProfileEmail')
-    };
-    var navRaw = val(content, '#abNavJson');
-    try { JSON.parse(navRaw); } catch (e) { toast(t('admin.settings.jsonError'), 'err'); return; }
-    var payload = {
-      site_info: site, profile: prof, nav: navRaw,
-      moderate_comments: content.querySelector('#abModerate') && content.querySelector('#abModerate').checked ? '1' : '0'
-    };
-    try {
-      await api('api/settings', { method: 'PUT', body: JSON.stringify(payload) });
-      toast(t('admin.settings.saved'), 'ok');
-    } catch (e) { toast(t('admin.settings.saveFail') + (e.message || e), 'err'); }
-  }
-  function val(content, sel) { var el = content.querySelector(sel); return el ? el.value : ''; }
 
+  function applySettingsToMemory(s) {
+    if (!s) return;
+
+    var site =
+      safeJson(s.site_info);
+
+    var prof =
+      safeJson(s.profile);
+
+    var c =
+      window.BLOG_CONFIG =
+      window.BLOG_CONFIG ||
+      {};
+
+    if (site.name) {
+      c.title =
+        site.name;
+    }
+
+    c.description =
+      site.desc ||
+      '';
+
+    c.siteAvatar =
+      site.avatar ||
+      '';
+
+    c.profile =
+      prof;
+
+    var nav =
+      s.nav;
+
+    if (typeof nav === 'string') {
+      try {
+        nav =
+          JSON.parse(nav || '[]');
+      } catch (e) {
+        nav = [];
+      }
+    }
+
+    if (Array.isArray(nav)) {
+      c.nav =
+        nav;
+    }
+
+    c.footer =
+      Object.assign(
+        {},
+        c.footer || {}
+      );
+
+    c.footer.copyrightName =
+      site.copyright ||
+      '';
+
+    c.footer.decl =
+      site.footerText ||
+      '';
+
+    c.moderateComments =
+      String(
+        s.moderate_comments ||
+        '0'
+      ) === '1';
+
+    try {
+      if (site.name) {
+        document.title =
+          site.name;
+      }
+    } catch (e) {}
+  }
+
+  async function saveSettings(content) {
+    stashSettingsFromCurrentTab(content);
+
+    var site =
+      safeJson(
+        settingsCache.site_info
+      );
+
+    var prof =
+      safeJson(
+        settingsCache.profile
+      );
+
+    var nav =
+      settingsCache.nav;
+
+    if (typeof nav === 'string') {
+      try {
+        nav =
+          JSON.parse(
+            nav ||
+            '[]'
+          );
+      } catch (e) {
+        toast(
+          t('admin.settings.jsonError'),
+          'err'
+        );
+        return;
+      }
+    }
+
+    if (!Array.isArray(nav)) {
+      nav = [];
+    }
+
+    var payload = {
+      site_info: site,
+      profile: prof,
+      nav: cloudOn()
+        ? JSON.stringify(nav)
+        : nav,
+      moderate_comments:
+        String(
+          settingsCache.moderate_comments ||
+          '0'
+        ) === '1'
+          ? '1'
+          : '0'
+    };
+
+    try {
+      var result;
+
+      if (cloudOn()) {
+        result =
+          await api(
+            'api/settings',
+            {
+              method: 'PUT',
+              body: JSON.stringify(payload)
+            }
+          );
+      } else {
+        result =
+          await localApi(
+            '/local-api/settings',
+            {
+              method: 'PUT',
+              body: JSON.stringify(payload)
+            }
+          );
+      }
+
+      settingsCache =
+        (result && result.settings) ||
+        payload;
+
+      if (!cloudOn()) {
+        applySettingsToMemory(
+          settingsCache
+        );
+      }
+
+      toast(
+        t('admin.settings.saved'),
+        'ok'
+      );
+    } catch (e) {
+      toast(
+        t('admin.settings.saveFail') +
+        (e.message || e),
+        'err'
+      );
+    }
+  }
+
+  function val(content, sel) {
+    var el =
+      content.querySelector(sel);
+
+    return el
+      ? el.value
+      : '';
+  }
   /* ---------- 可视化导航编辑器 ---------- */
   function renderNavVisual(content, jsonStr) {
     var wrap = content.querySelector('#abNavVisual');
