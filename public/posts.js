@@ -4,40 +4,12 @@
  * ============================================================ */
 window.BLOG_POSTS = [
   {
-    "id": "8",
-    "title": "8",
-    "date": "2026-08-26",
-    "excerpt": "8",
-    "content": "8",
-    "cover": "",
-    "pinned": false,
-    "tags": [
-      "8"
-    ],
-    "category": "",
-    "status": "published"
-  },
-  {
-    "id": "7",
-    "title": "7",
-    "date": "2026-08-26",
-    "excerpt": "这个是什么",
-    "content": "#这个是什么",
-    "cover": "",
-    "pinned": false,
-    "tags": [
-      "7"
-    ],
-    "category": "",
-    "status": "published"
-  },
-  {
-    "id": "56",
-    "title": "56",
-    "date": "2026-08-26",
-    "excerpt": "6",
-    "content": "6",
-    "cover": "",
+    "id": "5",
+    "title": "5",
+    "date": "2026-08-27",
+    "excerpt": "5",
+    "content": "5",
+    "cover": "https://images.2024921.xyz/images/20260823173330513.jpg",
     "pinned": false,
     "tags": [
       "5"
@@ -46,30 +18,19 @@ window.BLOG_POSTS = [
     "status": "published"
   },
   {
-    "id": "测试",
-    "title": "测试",
-    "date": "2026-08-26",
-    "excerpt": "测试",
-    "content": "测试",
-    "cover": "",
-    "pinned": false,
-    "tags": [
-      "测试"
-    ],
-    "category": "测试",
-    "status": "published"
-  },
-  {
     "id": "qingyu-blog-intro",
     "title": "Qingyu'Blog：一个可以双击打开的原生 JS 博客",
-    "date": "2026-08-21",
+    "date": "2026-08-27",
+    "excerpt": "Qingyu'Blog 是一个零框架、零构建的个人博客——整个站点由原生 JavaScript 写成，没有 node_modules，没有构建步骤，可以双击 index.html 直接打开阅读，也可以一键部署到云端。\nimage/image",
+    "content": "Qingyu'Blog 是一个**零框架、零构建**的个人博客——整个站点由原生 JavaScript 写成，没有 `node_modules`，没有构建步骤，可以双击 `index.html` 直接打开阅读，也可以一键部署到云端。\n![image](/images/20260827-105307-image-b84147.png)\n\n## 它是什么\n\nQingyu'Blog 是一套极简的写作与发布系统：\n\n- **写作**：Markdown 编辑器 + 实时预览，所见即所得\n- **发布**：一键导出静态文章文件，或直接发布到云端\n- **阅读**：文章列表、全文搜索、标签、归档、RSS 订阅一应俱全\n\n## 技术栈\n\n| 层 | 技术 |\n|---|---|\n| 前端 | 原生 JavaScript（零框架、零依赖） |\n| 云端 | Cloudflare Workers + D1 数据库 |\n| 部署 | GitHub Actions 自动发布 |\n| 数据 | Markdown 文章 + 本地文件 / D1 双通道 |\n\n## 优点\n\n### 轻\n\n- 无框架、无构建步骤、无依赖安装——四个文件即可运行整个博客\n- 页面秒开，移动端（iPhone 17 / Pro Max 等窄屏）体验良好\n\n### 双模式，随取随用\n\n- **静态模式**：双击 `index.html` 本地即开，全程离线可用\n- **云端模式**：部署到 Cloudflare 后自动识别，多端数据同步\n- 两种模式共用同一套界面与写作流程，无缝切换\n\n### 隐私与安全\n\n- **加密文章**：PBKDF2 + AES-GCM 端到端加密，输入访问密码才能阅读\n- Markdown 渲染全转义，内置防 XSS\n- 加密文章不进入 RSS，防止内容泄露\n\n### 自动化\n\n- 自动生成 RSS / Sitemap，发布即同步\n- 封面缩略图：指定图片，或自动取正文第一张图，无图时用主题渐变占位\n- 详情页本地缓存：首次拉取后秒开，内容更新自动重新拉取\n\n### 便捷管理\n\n- 写作台：实时预览、字数统计、自动草稿\n- 文章列表：直接切换置顶 / 加密 / 删除，无需进入编辑器\n- 全文搜索、标签聚合、归档浏览、阅读时长与浏览计数\n\n## 与其他博客的不同\n\n| 对比 | Qingyu'Blog | 常见博客 |\n|---|---|---|\n| 依赖 | 零框架、零构建 | Hexo / Hugo 需 Node 构建，WordPress 需服务器 |\n| 运行 | 双击即开、离线可用 | 需本地服务或托管平台 |\n| 数据 | 文章即 Markdown 文件，Git 可版本管理 | 多数存数据库 |\n| 加密 | 原生支持加密文章 | 多数需要插件 |\n| 部署 | 静态导出或一键上云 | 各不相同 |\n\n最大的不同是**「轻」与「自由」**：它不绑定任何框架或平台，你的文章永远以最朴素的 Markdown 文件形式存在，随时可以带走，随时可以发布。\n\n> 轻语，轻言细语地记录生活与技术。",
+    "cover": "/images/20260827-105307-image-b84147.png",
+    "pinned": false,
     "tags": [
       "随笔",
       "关于"
     ],
-    "pinned": false,
-    "excerpt": "零框架、零构建、双击即开；可一键上云、支持加密文章，文章数据永远是朴素的 Markdown 文件。这就是 Qingyu'Blog。",
-    "content": "Qingyu'Blog 是一个**零框架、零构建**的个人博客——整个站点由原生 JavaScript 写成，没有 `node_modules`，没有构建步骤，可以双击 `index.html` 直接打开阅读，也可以一键部署到云端。\n\n## 它是什么\n\nQingyu'Blog 是一套极简的写作与发布系统：\n\n- **写作**：Markdown 编辑器 + 实时预览，所见即所得\n- **发布**：一键导出静态文章文件，或直接发布到云端\n- **阅读**：文章列表、全文搜索、标签、归档、RSS 订阅一应俱全\n\n## 技术栈\n\n| 层 | 技术 |\n|---|---|\n| 前端 | 原生 JavaScript（零框架、零依赖） |\n| 云端 | Cloudflare Workers + D1 数据库 |\n| 部署 | GitHub Actions 自动发布 |\n| 数据 | Markdown 文章 + 本地文件 / D1 双通道 |\n\n## 优点\n\n### 轻\n\n- 无框架、无构建步骤、无依赖安装——四个文件即可运行整个博客\n- 页面秒开，移动端（iPhone 17 / Pro Max 等窄屏）体验良好\n\n### 双模式，随取随用\n\n- **静态模式**：双击 `index.html` 本地即开，全程离线可用\n- **云端模式**：部署到 Cloudflare 后自动识别，多端数据同步\n- 两种模式共用同一套界面与写作流程，无缝切换\n\n### 隐私与安全\n\n- **加密文章**：PBKDF2 + AES-GCM 端到端加密，输入访问密码才能阅读\n- Markdown 渲染全转义，内置防 XSS\n- 加密文章不进入 RSS，防止内容泄露\n\n### 自动化\n\n- 自动生成 RSS / Sitemap，发布即同步\n- 封面缩略图：指定图片，或自动取正文第一张图，无图时用主题渐变占位\n- 详情页本地缓存：首次拉取后秒开，内容更新自动重新拉取\n\n### 便捷管理\n\n- 写作台：实时预览、字数统计、自动草稿\n- 文章列表：直接切换置顶 / 加密 / 删除，无需进入编辑器\n- 全文搜索、标签聚合、归档浏览、阅读时长与浏览计数\n\n## 与其他博客的不同\n\n| 对比 | Qingyu'Blog | 常见博客 |\n|---|---|---|\n| 依赖 | 零框架、零构建 | Hexo / Hugo 需 Node 构建，WordPress 需服务器 |\n| 运行 | 双击即开、离线可用 | 需本地服务或托管平台 |\n| 数据 | 文章即 Markdown 文件，Git 可版本管理 | 多数存数据库 |\n| 加密 | 原生支持加密文章 | 多数需要插件 |\n| 部署 | 静态导出或一键上云 | 各不相同 |\n\n最大的不同是**「轻」与「自由」**：它不绑定任何框架或平台，你的文章永远以最朴素的 Markdown 文件形式存在，随时可以带走，随时可以发布。\n\n> 轻语，轻言细语地记录生活与技术。"
+    "category": "",
+    "status": "published"
   },
   {
     "id": "在线markdown编辑器-密码-123456",
